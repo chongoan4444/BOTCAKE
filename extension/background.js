@@ -264,38 +264,72 @@ async function getBotcakeTabs(
     sender
 ) {
 
-    const windowId =
-        await getWindowId(
-            sender
-        );
+    // Lấy windowId của sender (nếu có)
+    let windowId = null;
 
     if (
-        typeof windowId !==
+        typeof sender.tab?.windowId ===
         'number'
     ) {
 
-        throw new Error(
-            'Không xác định được cửa sổ'
-        );
+        windowId =
+            sender.tab.windowId;
     }
 
-    const tabs =
-        await chrome.tabs.query({
-            windowId
-        });
-
-    const botcakeTabs =
-        tabs
-            .filter(tab =>
-                isBotcake(
-                    tab.url || ''
+    // Helper: lọc tab Botcake trong một danh sách
+    const filterBotcake =
+        tabs =>
+            tabs
+                .filter(tab =>
+                    isBotcake(
+                        tab.url || ''
+                    )
                 )
-            )
-            .sort(
-                (a, b) =>
-                    a.index -
-                    b.index
-            );
+                .sort(
+                    (a, b) =>
+                        a.index -
+                        b.index
+                );
+
+    // Thử lấy tab trong cửa sổ của sender trước
+    let allTabs = [];
+
+    if (
+        typeof windowId ===
+        'number'
+    ) {
+
+        allTabs =
+            await chrome.tabs.query({
+                windowId
+            });
+    }
+
+    let botcakeTabs =
+        filterBotcake(allTabs);
+
+    // Nếu không tìm thấy tab Botcake nào trong cửa sổ sender,
+    // quét toàn bộ các cửa sổ khác (popup có thể mở từ tab không phải Botcake)
+    if (
+        botcakeTabs.length === 0
+    ) {
+
+        allTabs =
+            await chrome.tabs.query({});
+
+        botcakeTabs =
+            filterBotcake(allTabs);
+    }
+
+    if (
+        botcakeTabs.length === 0
+    ) {
+
+        return {
+            ok: true,
+            tabs: []
+        };
+    }
 
     return {
         ok: true,
