@@ -28,6 +28,36 @@ const minuteInput =
         'minute'
     );
 
+const startDateInput =
+    document.getElementById(
+        'startDate'
+    );
+
+const startHourInput =
+    document.getElementById(
+        'startHour'
+    );
+
+const startMinuteInput =
+    document.getElementById(
+        'startMinute'
+    );
+
+const endDateInput =
+    document.getElementById(
+        'endDate'
+    );
+
+const endHourInput =
+    document.getElementById(
+        'endHour'
+    );
+
+const endMinuteInput =
+    document.getElementById(
+        'endMinute'
+    );
+
 const autoSave =
     document.getElementById(
         'autoSave'
@@ -56,18 +86,49 @@ function pad(n) {
 // INITIAL TIME
 // =========================================================
 
-function setInitialTime() {
-    const d = new Date();
+function pad2(n) {
+    return String(n).padStart(2, '0');
+}
 
-    d.setMinutes(
-        d.getMinutes() + 15
+function setInitialTime() {
+    const now = new Date();
+
+    const start = new Date(now);
+    start.setMinutes(
+        now.getMinutes() + 15
     );
 
+    const end = new Date(now);
+    end.setMinutes(
+        now.getMinutes() + 45
+    );
+
+    // ===== END TIME (existing) =====
     hourInput.value =
-        pad(d.getHours());
+        pad2(end.getHours());
 
     minuteInput.value =
-        pad(d.getMinutes());
+        pad2(end.getMinutes());
+
+    // ===== START TIME =====
+    startDateInput.valueAsDate =
+        start;
+
+    startHourInput.value =
+        pad2(start.getHours());
+
+    startMinuteInput.value =
+        pad2(start.getMinutes());
+
+    // ===== END DATE =====
+    endDateInput.valueAsDate =
+        end;
+
+    endHourInput.value =
+        pad2(end.getHours());
+
+    endMinuteInput.value =
+        pad2(end.getMinutes());
 }
 
 // =========================================================
@@ -281,7 +342,9 @@ document.querySelectorAll(
 // GET TIME
 // =========================================================
 
-function getTime() {
+function parseDateTime(dateInput, hourInput, minuteInput) {
+    const d = dateInput.valueAsDate || new Date();
+
     let hour =
         parseInt(
             hourInput.value,
@@ -310,9 +373,32 @@ function getTime() {
         minute = 0;
     }
 
-    return {
+    d.setHours(
         hour,
-        minute
+        minute,
+        0,
+        0
+    );
+
+    // Trả về unix timestamp (giây) chuẩn theo dữ liệu HAR Botcake
+    return Math.floor(
+        d.getTime() / 1000
+    );
+}
+
+function getTime() {
+    return {
+        startDate: parseDateTime(
+            startDateInput,
+            startHourInput,
+            startMinuteInput
+        ),
+
+        endDate: parseDateTime(
+            endDateInput,
+            endHourInput,
+            endMinuteInput
+        )
     };
 }
 
@@ -347,6 +433,20 @@ runBtn.addEventListener(
                 10
             ) || 1;
 
+        if (
+            time.endDate <= time.startDate
+        ) {
+            statusEl.textContent =
+                '❌ Giờ kết thúc phải sau giờ bắt đầu';
+
+            statusEl.style.color =
+                '#ff6b6b';
+
+            endDateInput.focus();
+
+            return;
+        }
+
         runBtn.disabled =
             true;
 
@@ -373,11 +473,11 @@ runBtn.addEventListener(
                 message:
                     text,
 
-                hour:
-                    time.hour,
+                startDate:
+                    time.startDate,
 
-                minute:
-                    time.minute,
+                endDate:
+                    time.endDate,
 
                 autoSave:
                     autoSave.checked

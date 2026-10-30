@@ -66,17 +66,22 @@
 
     </div>
 
-    <!-- TIME -->
+    <!-- TIME START -->
     <div class="section">
 
         <label>
-            GIỜ KẾT THÚC
+            NGÀY GIỜ BẮT ĐẦU
         </label>
 
         <div class="time">
 
             <input
-                id="hour"
+                id="startDate"
+                type="date"
+            >
+
+            <input
+                id="startHour"
                 type="number"
                 min="0"
                 max="23"
@@ -87,7 +92,43 @@
             </span>
 
             <input
-                id="minute"
+                id="startMinute"
+                type="number"
+                min="0"
+                max="59"
+            >
+
+        </div>
+
+    </div>
+
+    <!-- TIME END -->
+    <div class="section">
+
+        <label>
+            NGÀY GIỜ KẾT THÚC
+        </label>
+
+        <div class="time">
+
+            <input
+                id="endDate"
+                type="date"
+            >
+
+            <input
+                id="endHour"
+                type="number"
+                min="0"
+                max="23"
+            >
+
+            <span>
+                :
+            </span>
+
+            <input
+                id="endMinute"
                 type="number"
                 min="0"
                 max="59"

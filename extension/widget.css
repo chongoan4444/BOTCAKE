@@ -345,7 +345,9 @@
 
     align-items: center;
 
-    gap: 4px;
+    gap: 8px;
+
+    flex-wrap: wrap;
 }
 
 .bc-tab-time > span {
@@ -389,6 +391,37 @@
     opacity: .28;
 
     cursor: not-allowed;
+}
+
+.bc-tab-time input[type="date"] {
+    width: 95px;
+
+    font-size: 13px;
+
+    padding: 2px 4px;
+}
+
+/* =========================================================
+   TIME GROUP (start / end)
+   ========================================================= */
+
+.bc-time-group {
+    display: flex;
+
+    align-items: center;
+
+    gap: 4px;
+
+    flex-wrap: wrap;
+}
+
+.bc-time-label {
+    color: #868e96;
+
+    font-size: 9px;
+    font-weight: 700;
+
+    white-space: nowrap;
 }
 
 /* =========================================================

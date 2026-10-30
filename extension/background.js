@@ -195,16 +195,22 @@ chrome.runtime.onMessage.addListener(
                     autoSave:
                         message.autoSave,
 
+                    startDate:
+                        message.startDate,
+
+                    endDate:
+                        message.endDate,
+
                     jobs: [
                         {
                             botNumber:
                                 message.botNumber,
 
-                            hour:
-                                message.hour,
+                            startDate:
+                                message.startDate,
 
-                            minute:
-                                message.minute
+                            endDate:
+                                message.endDate
                         }
                     ]
                 },
@@ -1270,6 +1276,51 @@ async function pageSchedule(
                     '0'
                 );
 
+    // Unix timestamp (giây) -> chuỗi DD/MM/YYYY HH:mm
+    function formatDateTime(
+        unixSeconds
+    ) {
+
+        if (!unixSeconds) {
+            return null;
+        }
+
+        const d =
+            new Date(
+                unixSeconds * 1000
+            );
+
+        return {
+            full:
+                pad(d.getDate()) +
+                '/' +
+                pad(
+                    d.getMonth() + 1
+                ) +
+                '/' +
+                d.getFullYear() +
+                ' ' +
+                pad(d.getHours()) +
+                ':' +
+                pad(d.getMinutes()),
+
+            hour:
+                pad(d.getHours()),
+
+            minute:
+                pad(d.getMinutes()),
+
+            date:
+                pad(d.getDate()) +
+                '/' +
+                pad(
+                    d.getMonth() + 1
+                ) +
+                '/' +
+                d.getFullYear()
+        };
+    }
+
     function visible(
         element
     ) {
@@ -1291,22 +1342,6 @@ async function pageSchedule(
             rect.height > 0 &&
             style.display !== 'none' &&
             style.visibility !== 'hidden'
-        );
-    }
-
-    function today() {
-
-        const d =
-            new Date();
-
-        return (
-            pad(d.getDate()) +
-            '/' +
-            pad(
-                d.getMonth() + 1
-            ) +
-            '/' +
-            d.getFullYear()
         );
     }
 
@@ -1436,34 +1471,104 @@ async function pageSchedule(
         );
     }
 
-    try {
+    // Chọn giờ/phút trong time panel của Ant DatePicker
+    async function pickTime(
+        dropdown,
+        hour,
+        minute
+    ) {
 
-        const input =
-            document.querySelector(
-                'input[placeholder="Ngày kết thúc"][date-range="end"]'
+        // HOUR
+        let hourCell =
+            dropdown.querySelector(
+                `.ant-picker-time-panel-column[data-type="hour"] li[data-value="${hour}"]`
             )
             ||
-            document.querySelector(
-                'input[date-range="end"]'
-            )
-            ||
-            document.querySelector(
-                'input[placeholder="Ngày kết thúc"]'
+            dropdown.querySelector(
+                `.ant-picker-time-panel-column:nth-child(1) li[data-value="${hour}"]`
             );
 
-        if (!input) {
+        if (hourCell) {
 
-            throw new Error(
-                'Không thấy Ngày kết thúc'
+            click(
+                hourCell.querySelector(
+                    '.ant-picker-time-panel-cell-inner'
+                )
+                ||
+                hourCell
             );
         }
 
+        await wait(25);
+
+        dropdown =
+            [
+                ...document.querySelectorAll(
+                    '.ant-picker-dropdown'
+                )
+            ].find(
+                element =>
+                    visible(element) &&
+                    !element.classList.contains(
+                        'ant-picker-dropdown-hidden'
+                    )
+            )
+            ||
+            dropdown;
+
+        // MINUTE
+        let minuteCell =
+            dropdown.querySelector(
+                `.ant-picker-time-panel-column[data-type="minute"] li[data-value="${minute}"]`
+            )
+            ||
+            dropdown.querySelector(
+                `.ant-picker-time-panel-column:nth-child(2) li[data-value="${minute}"]`
+            );
+
+        if (minuteCell) {
+
+            click(
+                minuteCell.querySelector(
+                    '.ant-picker-time-panel-cell-inner'
+                )
+                ||
+                minuteCell
+            );
+        }
+
+        await wait(30);
+    }
+
+    // Đặt giá trị ngày giờ cho một input datepicker + chọn giờ/phút + enter xong
+    async function setOneDateTime(
+        selectors,
+        dateTime
+    ) {
+
+        // selectors: mảng các chuỗi CSS selector, thử lần lượt
+        let input = null;
+
+        for (const sel of selectors) {
+
+            input =
+                document.querySelector(sel);
+
+            if (input) {
+                break;
+            }
+        }
+
+        if (!input) {
+
+            return {
+                ok: false,
+                error: `Không thấy input (selectors: ${selectors.join(', ')})`
+            };
+        }
+
         const full =
-            today() +
-            ' ' +
-            pad(data.hour) +
-            ':' +
-            pad(data.minute);
+            dateTime.full;
 
         input.focus();
 
@@ -1478,10 +1583,7 @@ async function pageSchedule(
             input
         );
 
-        // =================================================
-        // DROPDOWN
-        // =================================================
-
+        // Mở dropdown
         let dropdown =
             null;
 
@@ -1512,71 +1614,14 @@ async function pageSchedule(
 
         if (dropdown) {
 
-            // HOUR
-            let hourCell =
-                dropdown.querySelector(
-                    `.ant-picker-time-panel-column[data-type="hour"] li[data-value="${data.hour}"]`
-                )
-                ||
-                dropdown.querySelector(
-                    `.ant-picker-time-panel-column:nth-child(1) li[data-value="${data.hour}"]`
-                );
-
-            if (hourCell) {
-
-                click(
-                    hourCell.querySelector(
-                        '.ant-picker-time-panel-cell-inner'
-                    )
-                    ||
-                    hourCell
-                );
-            }
-
-            await wait(25);
-
-            dropdown = [
-                ...document.querySelectorAll(
-                    '.ant-picker-dropdown'
-                )
-            ].find(
-                element =>
-                    visible(element) &&
-                    !element.classList.contains(
-                        'ant-picker-dropdown-hidden'
-                    )
-            )
-            ||
-            dropdown;
-
-            // MINUTE
-            let minuteCell =
-                dropdown.querySelector(
-                    `.ant-picker-time-panel-column[data-type="minute"] li[data-value="${data.minute}"]`
-                )
-                ||
-                dropdown.querySelector(
-                    `.ant-picker-time-panel-column:nth-child(2) li[data-value="${data.minute}"]`
-                );
-
-            if (minuteCell) {
-
-                click(
-                    minuteCell.querySelector(
-                        '.ant-picker-time-panel-cell-inner'
-                    )
-                    ||
-                    minuteCell
-                );
-            }
-
-            await wait(30);
+            await pickTime(
+                dropdown,
+                dateTime.hour,
+                dateTime.minute
+            );
         }
 
-        // =================================================
-        // FINAL
-        // =================================================
-
+        // Xác nhận giá trị cuối
         input.focus();
 
         setValue(
@@ -1616,6 +1661,78 @@ async function pageSchedule(
         try {
             input.blur();
         } catch (_) {}
+
+        return {
+            ok: true,
+            full
+        };
+    }
+
+    try {
+
+        const start =
+            formatDateTime(
+                data.startDate
+            );
+
+        const end =
+            formatDateTime(
+                data.endDate
+            );
+
+        if (!end) {
+
+            throw new Error(
+                'Không có ngày giờ kết thúc'
+            );
+        }
+
+        // =================================================
+        // NGÀY GIỜ BẮT ĐẦU (nếu có)
+        // =================================================
+
+        if (start) {
+
+            const startResult =
+                await setOneDateTime(
+                    [
+                        'input[placeholder="Ngày bắt đầu"][date-range="start"]',
+                        'input[date-range="start"]',
+                        'input[placeholder="Ngày bắt đầu"]'
+                    ],
+                    start
+                );
+
+            if (!startResult.ok) {
+
+                // Nếu không có input bắt đầu riêng, bỏ qua (UI chỉ có kết thúc)
+                console.warn(
+                    '[Botcake pageSchedule] ' +
+                    startResult.error
+                );
+            }
+        }
+
+        // =================================================
+        // NGÀY GIỜ KẾT THÚC
+        // =================================================
+
+        const endResult =
+            await setOneDateTime(
+                [
+                    'input[placeholder="Ngày kết thúc"][date-range="end"]',
+                    'input[date-range="end"]',
+                    'input[placeholder="Ngày kết thúc"]'
+                ],
+                end
+            );
+
+        if (!endResult.ok) {
+
+            throw new Error(
+                endResult.error
+            );
+        }
 
         // =================================================
         // SAVE
@@ -1696,7 +1813,15 @@ async function pageSchedule(
 
         return {
             ok: true,
-            full
+
+            full:
+                end.full,
+
+            startDate:
+                start ? start.full : null,
+
+            endDate:
+                end.full
         };
 
     } catch (error) {
@@ -1716,8 +1841,8 @@ async function pageSchedule(
 
 async function setSchedule(
     target,
-    hour,
-    minute,
+    startDate,
+    endDate,
     autoSave
 ) {
 
@@ -1726,8 +1851,8 @@ async function setSchedule(
         pageSchedule.toString() +
         ')(' +
         JSON.stringify({
-            hour,
-            minute,
+            startDate,
+            endDate,
             autoSave
         }) +
         ')';
@@ -1766,6 +1891,950 @@ async function setSchedule(
     }
 
     return pageResult;
+}
+
+// =========================================================
+// FILTER CONDITIONS (như script F6)
+// =========================================================
+
+async function setFilterConditions(
+    target,
+    startDate,
+    endDate
+) {
+
+    const expression =
+        '(' +
+        setFilterConditionsPage.toString() +
+        ')(' +
+        JSON.stringify({
+            startDate,
+            endDate
+        }) +
+        ')';
+
+    const response =
+        await cdp(
+            target,
+            'Runtime.evaluate',
+            {
+                expression,
+                awaitPromise: true,
+                returnByValue: true
+            }
+        );
+
+    if (
+        response.exceptionDetails
+    ) {
+
+        throw new Error(
+            'Lỗi đặt điều kiện lọc'
+        );
+    }
+
+    return response.result?.value;
+}
+
+async function setFilterConditionsPage(
+    data
+) {
+
+    const wait =
+        ms =>
+            new Promise(
+                resolve =>
+                    setTimeout(
+                        resolve,
+                        ms
+                    )
+            );
+
+    const clean =
+        value =>
+            (value || '')
+                .replace(
+                    /\s+/g,
+                    ' '
+                )
+                .trim();
+
+    const text =
+        el =>
+            clean(
+                el?.textContent
+            );
+
+    const visible =
+        el => {
+            if (
+                !el ||
+                !el.isConnected
+            ) {
+                return false;
+            }
+
+            const style =
+                getComputedStyle(
+                    el
+                );
+
+            return (
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                el.getBoundingClientRect().width > 0 &&
+                el.getBoundingClientRect().height > 0
+            );
+        };
+
+    const buttons =
+        label =>
+            [
+                ...document.querySelectorAll(
+                    'button'
+                )
+            ].filter(
+                el =>
+                    text(el) === label &&
+                    !el.disabled &&
+                    visible(el)
+            );
+
+    const panel = () => {
+
+        const clear =
+            buttons('Xóa tất cả lọc').find(
+                el => visible(el)
+            );
+
+        return clear
+            ? clear.closest('.rounded-xl') ||
+                null
+            : null;
+    };
+
+    const rows = () => {
+
+        const body =
+            panel()?.querySelector(
+                '.data-collapsible'
+            );
+
+        return body
+            ? [
+                ...body.querySelectorAll(
+                    '.flex.gap-12'
+                )
+            ].filter(
+                el =>
+                    el.querySelector(
+                        ':scope > .ant-dropdown-trigger'
+                    )
+            )
+            : [];
+    };
+
+    const rowAt =
+        index => {
+            const row =
+                rows()[index];
+
+            if (!row) {
+                throw new Error(
+                    `Không tìm thấy dòng điều kiện thứ ${
+                        index + 1
+                    }`
+                );
+            }
+
+            return row;
+        };
+
+    const selects =
+        row =>
+            [
+                ...row.querySelectorAll(
+                    ':scope > .w-full .ant-select'
+                )
+            ];
+
+    const chosen =
+        select =>
+            text(
+                select?.querySelector(
+                    '.ant-select-selection-item'
+                )
+            );
+
+    const equals =
+        (a, b) =>
+            clean(a)
+                .toLocaleLowerCase('vi') ===
+            clean(b)
+                .toLocaleLowerCase('vi');
+
+    const popupSelector =
+        '.ant-dropdown, .ant-select-dropdown, .ant-popover, [role="menu"], [role="listbox"], .rc-virtual-list';
+
+    const itemSelector =
+        '.ant-dropdown-menu-item, .ant-select-item-option, [role="menuitem"], [role="option"], .rc-virtual-list-holder-inner > *';
+
+    function popupOption(
+        label
+    ) {
+
+        const labels =
+            Array.isArray(label)
+                ? label
+                : [label];
+
+        for (const name of labels) {
+
+            for (const popup of document.querySelectorAll(
+                popupSelector
+            )) {
+
+                if (
+                    popup.classList.contains(
+                        'ant-dropdown-trigger'
+                    ) ||
+                    popup.classList.contains(
+                        'ant-dropdown-hidden'
+                    ) ||
+                    popup.classList.contains(
+                        'ant-select-dropdown-hidden'
+                    )
+                ) {
+                    continue;
+                }
+
+                const items = [
+                    ...popup.querySelectorAll(
+                        itemSelector
+                    )
+                ];
+
+                const exact =
+                    items.find(
+                        el =>
+                            visible(el) &&
+                            equals(text(el), name)
+                    );
+
+                if (exact) {
+                    return exact;
+                }
+
+                const leaf = [
+                    ...popup.querySelectorAll(
+                        'span, div, li, button'
+                    )
+                ].find(
+                    el =>
+                        visible(el) &&
+                        equals(text(el), name) &&
+                        ![
+                            ...el.children
+                        ].some(
+                            child =>
+                                equals(
+                                    text(child),
+                                    name
+                                )
+                        )
+                );
+
+                if (leaf) {
+
+                    const target =
+                        leaf.closest(
+                            `${itemSelector}, li, button, .cursor-pointer`
+                        );
+
+                    return target &&
+                        popup.contains(target) &&
+                        visible(target)
+                        ? target
+                        : leaf;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    async function choose(
+        trigger,
+        label,
+        kind
+    ) {
+
+        if (
+            !trigger ||
+            !visible(trigger)
+        ) {
+            throw new Error(
+                `Không tìm thấy ô chọn cho “${
+                    Array.isArray(label)
+                        ? label.join(' / ')
+                        : label
+                }”`
+            );
+        }
+
+        trigger.click();
+
+        let option =
+            await wait(
+                    () =>
+                        popupOption(label),
+                    900
+                )
+                .catch(() => null);
+
+        if (!option && kind !== 'dropdown') {
+
+            trigger.dispatchEvent(
+                new MouseEvent(
+                    'mousedown',
+                    {
+                        bubbles: true,
+                        cancelable: true,
+                        button: 0,
+                        buttons: 1
+                    }
+                )
+            );
+
+            trigger.dispatchEvent(
+                new MouseEvent(
+                    'mouseup',
+                    {
+                        bubbles: true,
+                        cancelable: true,
+                        button: 0
+                    }
+                )
+            );
+
+            option =
+                await wait(
+                        () =>
+                            popupOption(label),
+                        2500
+                    )
+                    .catch(() => null);
+        }
+
+        // Danh sách thẻ dài, chỉ render sau tìm kiếm
+        if (!option && kind === 'tag') {
+
+            const input =
+                trigger.closest('.ant-select')?.querySelector(
+                    'input.ant-select-selection-search-input:not([readonly])'
+                );
+
+            if (input) {
+
+                input.focus();
+
+                const setter =
+                    Object.getOwnPropertyDescriptor(
+                        HTMLInputElement.prototype,
+                        'value'
+                    ).set;
+
+                setter.call(input, label);
+
+                input.dispatchEvent(
+                    new Event(
+                        'input',
+                        { bubbles: true }
+                    )
+                );
+
+                option =
+                    await wait(
+                            () =>
+                                popupOption(label),
+                            6000
+                        )
+                        .catch(() => null);
+            }
+        }
+
+        if (!option) {
+
+            const open = [
+                ...document.querySelectorAll(
+                    popupSelector
+                )
+            ].filter(
+                el =>
+                    !el.classList.contains(
+                        'ant-dropdown-trigger'
+                    ) &&
+                    visible(el)
+            );
+
+            throw new Error(
+                `Không thấy tùy chọn “${
+                    Array.isArray(label)
+                        ? label.join(' / ')
+                        : label
+                }” (menu đang hiển thị: ${
+                    open.length
+                }).`
+            );
+        }
+
+        if (
+            kind === 'tag' &&
+            option.closest(
+                '.ant-select-item-option-selected, .ant-dropdown-menu-item-selected, [aria-selected="true"]'
+            )
+        ) {
+            return;
+        }
+
+        option.click();
+    }
+
+    async function ensureField(
+        index,
+        label
+    ) {
+
+        const labels =
+            Array.isArray(label)
+                ? label
+                : [label];
+
+        const current = text(
+            rowAt(index).querySelector(
+                ':scope > .ant-dropdown-trigger'
+            )
+        );
+
+        if (
+            labels.some(
+                name => equals(current, name)
+            )
+        ) {
+            return;
+        }
+
+        if (
+            current &&
+            current !== 'Chọn điều kiện lọc'
+        ) {
+            throw new Error(
+                `Dòng ${
+                    index + 1
+                } đang chọn “${
+                    current
+                }”; không ghi đè điều kiện có sẵn.`
+            );
+        }
+
+        await choose(
+            rowAt(index).querySelector(
+                ':scope > .ant-dropdown-trigger'
+            ),
+            labels,
+            'dropdown'
+        );
+
+        await wait(
+            () =>
+                labels.some(
+                    name =>
+                        equals(
+                            text(
+                                rowAt(
+                                    index
+                                ).querySelector(
+                                    ':scope > .ant-dropdown-trigger'
+                                )
+                            ),
+                            name
+                        )
+                ),
+            5000
+        );
+    }
+
+    async function ensureOperator(
+        index,
+        label
+    ) {
+
+        const labels =
+            Array.isArray(label)
+                ? label
+                : [label];
+
+        const select =
+            selects(rowAt(index))[0];
+
+        if (!select) {
+            throw new Error(
+                `Không thấy ô kiểu lọc tại dòng ${
+                    index + 1
+                }`
+            );
+        }
+
+        if (
+            labels.some(
+                name => equals(chosen(select), name)
+            )
+        ) {
+            return;
+        }
+
+        await choose(
+            select.querySelector(
+                '.ant-select-selector'
+            ),
+            labels,
+            'select'
+        );
+
+        await wait(
+            () =>
+                labels.some(
+                    name =>
+                        equals(
+                            chosen(
+                                selects(rowAt(index))[0]
+                            ),
+                            name
+                        )
+                ),
+            5000
+        );
+    }
+
+    async function ensureRow(
+        index
+    ) {
+
+        while (rows().length <= index) {
+
+            const before =
+                rows().length;
+
+            const add =
+                buttons('Thêm điều kiện').find(
+                    el =>
+                        panel()?.contains(el) &&
+                        visible(el)
+                );
+
+            if (!add) {
+                throw new Error(
+                    'Không tìm thấy nút “Thêm điều kiện”.'
+                );
+            }
+
+            add.click();
+
+            await wait(
+                () => rows().length > before,
+                10000
+            );
+        }
+    }
+
+    try {
+
+        await openForm();
+
+        if (!rows().length) {
+
+            const filter =
+                buttons('Điều kiện lọc').find(
+                    el =>
+                        panel()?.contains(el) &&
+                        visible(el)
+                );
+
+            if (!filter) {
+
+                return {
+                    ok: false,
+                    error:
+                        'Không tìm thấy nút “Điều kiện lọc”'
+                };
+            }
+
+            filter.click();
+
+            await wait(
+                () => rows().length > 0,
+                15000
+            );
+        }
+
+        // Dòng 0: Thẻ + Không bằng + Chặn
+        await ensureField(0, 'Thẻ');
+        await ensureOperator(0, 'Không bằng');
+
+        const tagValueSelect = selects(rowAt(0))[1];
+        const addTagBtn = [
+            ...rowAt(0).querySelectorAll('button')
+        ].find(
+            el => text(el) === 'Thêm thẻ'
+        );
+
+        const tagTrigger =
+            tagValueSelect?.querySelector(
+                '.ant-select-selector'
+            ) ||
+            addTagBtn;
+
+        if (!tagTrigger) {
+            throw new Error(
+                'Không tìm thấy ô thêm/chọn thẻ ở dòng đầu.'
+            );
+        }
+
+        await choose(tagTrigger, 'Chặn', 'tag');
+
+        await wait(1000);
+
+        // Dòng 1: Số điện thoại + Không có
+        await ensureRow(1);
+        await ensureField(1, 'Số điện thoại');
+        await ensureOperator(1, ['Không có', 'Không']);
+
+        // Dòng 2: Ngày giờ đăng ký + Khoảng + ngày giờ
+        await ensureRow(2);
+        await ensureField(2, [
+            'Ngày giờ đăng ký',
+            'Ngày giờ đăng'
+        ]);
+        await ensureOperator(2, ['Khoảng', 'Khoảng thời gian']);
+
+        // Đặt ngày giờ vào ô giá trị của dòng 2
+        const dateValueSelect = selects(rowAt(2))[1];
+        const dateTrigger =
+            dateValueSelect?.querySelector(
+                '.ant-select-selector'
+            );
+
+        if (dateTrigger) {
+
+            const start =
+                data.startDate
+                    ? new Date(
+                        data.startDate * 1000
+                    )
+                    : null;
+
+            const end =
+                data.endDate
+                    ? new Date(
+                        data.endDate * 1000
+                    )
+                    : null;
+
+            const pad =
+                n =>
+                    String(n).padStart(2, '0');
+
+            const startStr =
+                start
+                    ? `${pad(start.getDate())}/${pad(start.getMonth() + 1)}/${start.getFullYear()} ${pad(start.getHours())}:${pad(start.getMinutes())}`
+                    : '';
+
+            const endStr =
+                end
+                    ? `${pad(end.getDate())}/${pad(end.getMonth() + 1)}/${end.getFullYear()} ${pad(end.getHours())}:${pad(end.getMinutes())}`
+                    : '';
+
+            // Click trigger để mở chọn ngày
+            dateTrigger.click();
+
+            await wait(1000);
+
+            // Tìm input ngày trong popup/datepicker
+            const dateInput =
+                document.querySelector(
+                    'input[type="date"], input[placeholder*="Ngày"], input[placeholder*="ngày"]'
+                ) ||
+                dateValueSelect.querySelector('input');
+
+            if (dateInput && startStr) {
+
+                dateInput.focus();
+
+                const setter =
+                    Object.getOwnPropertyDescriptor(
+                        HTMLInputElement.prototype,
+                        'value'
+                    ).set;
+
+                setter.call(dateInput, startStr);
+
+                dateInput.dispatchEvent(
+                    new Event(
+                        'input',
+                        { bubbles: true }
+                    )
+                );
+
+                dateInput.dispatchEvent(
+                    new Event(
+                        'change',
+                        { bubbles: true }
+                    )
+                );
+            }
+        }
+
+        return {
+            ok: true
+        };
+
+    } catch (error) {
+
+        return {
+            ok: false,
+            error: error.message
+        };
+    }
+}
+
+// =========================================================
+// OPEN CREATE FORM (TẠO MỚI)
+// =========================================================
+
+async function openCreateForm(
+    target
+) {
+
+    const expression =
+        '(' +
+        openCreateFormPage.toString() +
+        ')()';
+
+    const response =
+        await cdp(
+            target,
+            'Runtime.evaluate',
+            {
+                expression,
+                awaitPromise: true,
+                returnByValue: true
+            }
+        );
+
+    if (
+        response.exceptionDetails
+    ) {
+
+        throw new Error(
+            'Lỗi mở form tạo mới'
+        );
+    }
+
+    return response.result?.value;
+}
+
+async function openCreateFormPage() {
+
+    const wait =
+        ms =>
+            new Promise(
+                resolve =>
+                    setTimeout(
+                        resolve,
+                        ms
+                    )
+            );
+
+    const text =
+        el =>
+            (el?.textContent || '')
+                .replace(
+                    /\s+/g,
+                    ' '
+                )
+                .trim();
+
+    const visible =
+        el => {
+            if (
+                !el ||
+                !el.isConnected
+            ) {
+                return false;
+            }
+
+            const style =
+                getComputedStyle(
+                    el
+                );
+
+            return (
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                el.getBoundingClientRect().width > 0 &&
+                el.getBoundingClientRect().height > 0
+            );
+        };
+
+    const buttons =
+        label =>
+            [
+                ...document.querySelectorAll(
+                    'button'
+                )
+            ].filter(
+                el =>
+                    text(el) === label &&
+                    !el.disabled &&
+                    visible(el)
+            );
+
+    // Kiểm tra xem có đang ở giao diện tạo lọc (có panel "Xóa tất cả lọc")
+    const isFilterInterface = () => {
+
+        const clear =
+            buttons('Xóa tất cả lọc').find(
+                el => visible(el)
+            );
+
+        return clear
+            ? clear.closest('.rounded-xl') !== null
+            : false;
+    };
+
+    // Kiểm tra xem có đang ở giao diện điền câu (có nút "Tiếp theo")
+    const isMessageInterface = () =>
+        buttons('Tiếp theo').length > 0;
+
+    // Nhấn nút quay lại (back) trên giao diện tạo lọc
+    // SVG path: M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80...
+    const clickBack = () => {
+
+        const backBtns = [
+            ...document.querySelectorAll(
+                'button'
+            )
+        ].filter(el => {
+
+            const svg =
+                el.querySelector('svg');
+
+            if (!svg) {
+                return false;
+            }
+
+            const path =
+                svg.querySelector('path');
+
+            if (!path) {
+                return false;
+            }
+
+            const d =
+                path.getAttribute('d') || '';
+
+            return d.startsWith('M165.66,202.34');
+        });
+
+        if (
+            backBtns.length > 0 &&
+            visible(backBtns[0])
+        ) {
+
+            backBtns[0].click();
+
+            return true;
+        }
+
+        return false;
+    };
+
+    // Nhấn nút "Tiếp theo" trên giao diện điền câu
+    const clickTiepTheo = () => {
+
+        const btns =
+            buttons('Tiếp theo');
+
+        if (
+            btns.length > 0
+        ) {
+
+            btns[0].click();
+
+            return true;
+        }
+
+        return false;
+    };
+
+    try {
+
+        // Bước 1: Nhấn "Tạo mới"
+        const createBtn =
+            buttons('Tạo mới').find(
+                el => visible(el)
+            );
+
+        if (!createBtn) {
+
+            return {
+                ok: false,
+                error:
+                    'Không tìm thấy nút “Tạo mới”'
+            };
+        }
+
+        createBtn.click();
+
+        // Chờ trang ổn định
+        await wait(1000);
+
+        // Bước 2: Nếu đang ở giao diện tạo lọc → nhấn nút quay lại (back) để về giao diện điền câu
+        if (isFilterInterface()) {
+
+            if (!clickBack()) {
+
+                return {
+                    ok: false,
+                    error:
+                        'Không tìm thấy nút quay lại (back) trên giao diện tạo lọc'
+                };
+            }
+
+            await wait(1000);
+        }
+
+        // Bước 3: Xác nhận đang ở giao diện điền câu (có nút "Tiếp theo")
+        if (!isMessageInterface()) {
+
+            return {
+                ok: false,
+                error:
+                    'Không ở giao diện điền câu (không tìm thấy nút “Tiếp theo”)'
+            };
+        }
+
+        return {
+            ok: true
+        };
+
+    } catch (error) {
+
+        return {
+            ok: false,
+            error: error.message
+        };
+    }
 }
 
 // =========================================================
@@ -1812,6 +2881,21 @@ async function processOneBotcake(
 
     try {
 
+        // MỞ FORM TẠO MỚI (như script F6)
+        const openResult =
+            await openCreateForm(
+                target
+            );
+
+        if (!openResult?.ok) {
+
+            console.warn(
+                '[Botcake Multi] Không mở được form tạo mới: ' +
+                (openResult?.error || 'unknown') +
+                ' – thử tiếp điền nội dung'
+            );
+        }
+
         // CONTENT
         await fillEditor(
             target,
@@ -1823,33 +2907,42 @@ async function processOneBotcake(
             target
         );
 
+        // ĐIỀU KIỆN LỌC (như script F6) - cố thiết thì bỏ qua, không chặn luồng chính
+        try {
+
+            const filterResult =
+                await setFilterConditions(
+                    target,
+                    job.startDate || null,
+                    job.endDate || null
+                );
+
+            if (!filterResult?.ok) {
+
+                console.warn(
+                    '[Botcake Multi] Bỏ qua điều kiện lọc: ' +
+                    (filterResult?.error || 'unknown')
+                );
+            }
+        } catch (filterErr) {
+
+            console.warn(
+                '[Botcake Multi] Lỗi điều kiện lọc: ' +
+                filterErr.message
+            );
+        }
+
         // WAIT DATE
         await waitEndDate(
             target
         );
 
-        // TIME + SAVE
+        // TIME + SAVE (ngày giờ bắt đầu + kết thúc)
         const schedule =
             await setSchedule(
                 target,
-                Math.max(
-                    0,
-                    Math.min(
-                        23,
-                        Number(
-                            job.hour
-                        ) || 0
-                    )
-                ),
-                Math.max(
-                    0,
-                    Math.min(
-                        59,
-                        Number(
-                            job.minute
-                        ) || 0
-                    )
-                ),
+                job.startDate || null,
+                job.endDate || null,
                 autoSave
             );
 
@@ -1858,6 +2951,12 @@ async function processOneBotcake(
 
             botNumber:
                 job.botNumber,
+
+            startDate:
+                job.startDate || null,
+
+            endDate:
+                job.endDate || null,
 
             full:
                 schedule.full
@@ -1959,6 +3058,35 @@ async function runBotcakeMulti(
     // VALIDATE + SORT JOB
     // =====================================================
 
+    const startDate =
+        Math.max(
+            0,
+            parseInt(
+                data.startDate,
+                10
+            ) || 0
+        );
+
+    const endDate =
+        Math.max(
+            0,
+            parseInt(
+                data.endDate,
+                10
+            ) || 0
+        );
+
+    if (
+        endDate &&
+        startDate &&
+        endDate <= startDate
+    ) {
+
+        throw new Error(
+            'Giờ kết thúc phải sau giờ bắt đầu'
+        );
+    }
+
     const jobs =
         data.jobs
             .map(job => ({
@@ -1971,28 +3099,22 @@ async function runBotcakeMulti(
                         ) || 1
                     ),
 
-                hour:
+                startDate:
                     Math.max(
                         0,
-                        Math.min(
-                            23,
-                            parseInt(
-                                job.hour,
-                                10
-                            ) || 0
-                        )
+                        parseInt(
+                            job.startDate,
+                            10
+                        ) || startDate || 0
                     ),
 
-                minute:
+                endDate:
                     Math.max(
                         0,
-                        Math.min(
-                            59,
-                            parseInt(
-                                job.minute,
-                                10
-                            ) || 0
-                        )
+                        parseInt(
+                            job.endDate,
+                            10
+                        ) || endDate || 0
                     )
             }))
             .sort(
@@ -2057,8 +3179,28 @@ async function runBotcakeMulti(
         const item =
             targets[i];
 
+        const startSec =
+            item.job.startDate || 0;
+
+        const endSec =
+            item.job.endDate || 0;
+
+        const startD =
+            startSec
+                ? new Date(
+                    startSec * 1000
+                )
+                : null;
+
+        const endD =
+            endSec
+                ? new Date(
+                    endSec * 1000
+                )
+                : null;
+
         console.log(
-            `[Botcake Multi] ${i + 1}/${targets.length} - Botcake #${item.job.botNumber} - ${item.job.hour}:${item.job.minute}`
+            `[Botcake Multi] ${i + 1}/${targets.length} - Botcake #${item.job.botNumber} - ${startD ? startD.toLocaleString('vi-VN') : '-'} -> ${endD ? endD.toLocaleString('vi-VN') : '-'}`
         );
 
         try {

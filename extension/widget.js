@@ -47,18 +47,21 @@
         String(n).padStart(2, '0');
 
     function getDefaultTime() {
-        const d = new Date();
+        const now = new Date();
 
-        d.setMinutes(
-            d.getMinutes() + 15
+        const start = new Date(now);
+        start.setMinutes(
+            now.getMinutes() + 15
+        );
+
+        const end = new Date(now);
+        end.setMinutes(
+            now.getMinutes() + 45
         );
 
         return {
-            hour:
-                d.getHours(),
-
-            minute:
-                d.getMinutes()
+            startDate: Math.floor(start.getTime() / 1000),
+            endDate: Math.floor(end.getTime() / 1000)
         };
     }
 
@@ -509,17 +512,23 @@
                 String(number)
             ] || {};
 
-        const hour =
-            clampHour(
-                existingTime.hour ??
-                defaultTime.hour
-            );
+        const startDate =
+            existingTime.startDate ??
+            defaultTime.startDate;
 
-        const minute =
-            clampMinute(
-                existingTime.minute ??
-                defaultTime.minute
-            );
+        const endDate =
+            existingTime.endDate ??
+            defaultTime.endDate;
+
+        const startD =
+            startDate
+                ? new Date(startDate * 1000)
+                : null;
+
+        const endD =
+            endDate
+                ? new Date(endDate * 1000)
+                : null;
 
         const row =
             document.createElement(
@@ -555,25 +564,71 @@
 
             <div class="bc-tab-time">
 
-                <input
-                    type="text"
-                    inputmode="numeric"
-                    maxlength="2"
-                    class="bc-tab-hour"
-                    value="${pad(hour)}"
-                    ${checked ? '' : 'disabled'}
-                >
+                <div class="bc-time-group">
 
-                <span>:</span>
+                    <label class="bc-time-label">Từ</label>
 
-                <input
-                    type="text"
-                    inputmode="numeric"
-                    maxlength="2"
-                    class="bc-tab-minute"
-                    value="${pad(minute)}"
-                    ${checked ? '' : 'disabled'}
-                >
+                    <input
+                        type="date"
+                        class="bc-tab-start-date"
+                        value="${startD ? startD.toISOString().slice(0, 10) : ''}"
+                        ${checked ? '' : 'disabled'}
+                    >
+
+                    <input
+                        type="text"
+                        inputmode="numeric"
+                        maxlength="2"
+                        class="bc-tab-start-hour"
+                        value="${startD ? pad(startD.getHours()) : ''}"
+                        ${checked ? '' : 'disabled'}
+                    >
+
+                    <span>:</span>
+
+                    <input
+                        type="text"
+                        inputmode="numeric"
+                        maxlength="2"
+                        class="bc-tab-start-minute"
+                        value="${startD ? pad(startD.getMinutes()) : ''}"
+                        ${checked ? '' : 'disabled'}
+                    >
+
+                </div>
+
+                <div class="bc-time-group">
+
+                    <label class="bc-time-label">Đến</label>
+
+                    <input
+                        type="date"
+                        class="bc-tab-end-date"
+                        value="${endD ? endD.toISOString().slice(0, 10) : ''}"
+                        ${checked ? '' : 'disabled'}
+                    >
+
+                    <input
+                        type="text"
+                        inputmode="numeric"
+                        maxlength="2"
+                        class="bc-tab-end-hour"
+                        value="${endD ? pad(endD.getHours()) : ''}"
+                        ${checked ? '' : 'disabled'}
+                    >
+
+                    <span>:</span>
+
+                    <input
+                        type="text"
+                        inputmode="numeric"
+                        maxlength="2"
+                        class="bc-tab-end-minute"
+                        value="${endD ? pad(endD.getMinutes()) : ''}"
+                        ${checked ? '' : 'disabled'}
+                    >
+
+                </div>
 
             </div>
         `;
@@ -583,15 +638,44 @@
                 '.bc-tab-check'
             );
 
-        const hourInput =
+        const startDateInput =
             row.querySelector(
-                '.bc-tab-hour'
+                '.bc-tab-start-date'
             );
 
-        const minuteInput =
+        const startHourInput =
             row.querySelector(
-                '.bc-tab-minute'
+                '.bc-tab-start-hour'
             );
+
+        const startMinuteInput =
+            row.querySelector(
+                '.bc-tab-start-minute'
+            );
+
+        const endDateInput =
+            row.querySelector(
+                '.bc-tab-end-date'
+            );
+
+        const endHourInput =
+            row.querySelector(
+                '.bc-tab-end-hour'
+            );
+
+        const endMinuteInput =
+            row.querySelector(
+                '.bc-tab-end-minute'
+            );
+
+        const timeInputs = [
+            startDateInput,
+            startHourInput,
+            startMinuteInput,
+            endDateInput,
+            endHourInput,
+            endMinuteInput
+        ];
 
         // =====================================================
         // CHECKBOX
@@ -609,11 +693,12 @@
                         number
                     );
 
-                    hourInput.disabled =
-                        false;
-
-                    minuteInput.disabled =
-                        false;
+                    timeInputs.forEach(
+                        input => {
+                            input.disabled =
+                                false;
+                        }
+                    );
 
                     row.classList.add(
                         'bc-tab-row-selected'
@@ -625,11 +710,12 @@
                         number
                     );
 
-                    hourInput.disabled =
-                        true;
-
-                    minuteInput.disabled =
-                        true;
+                    timeInputs.forEach(
+                        input => {
+                            input.disabled =
+                                true;
+                        }
+                    );
 
                     row.classList.remove(
                         'bc-tab-row-selected'
@@ -941,46 +1027,84 @@
                 continue;
             }
 
-            const hourInput =
+            const startDateInput =
                 row.querySelector(
-                    '.bc-tab-hour'
+                    '.bc-tab-start-date'
                 );
 
-            const minuteInput =
+            const startHourInput =
                 row.querySelector(
-                    '.bc-tab-minute'
+                    '.bc-tab-start-hour'
                 );
 
-            const hour =
+            const startMinuteInput =
+                row.querySelector(
+                    '.bc-tab-start-minute'
+                );
+
+            const endDateInput =
+                row.querySelector(
+                    '.bc-tab-end-date'
+                );
+
+            const endHourInput =
+                row.querySelector(
+                    '.bc-tab-end-hour'
+                );
+
+            const endMinuteInput =
+                row.querySelector(
+                    '.bc-tab-end-minute'
+                );
+
+            const d = endDateInput.valueAsDate || new Date();
+
+            let sh =
                 clampHour(
-                    hourInput.value
+                    startHourInput.value
                 );
 
-            const minute =
+            let sm =
                 clampMinute(
-                    minuteInput.value
+                    startMinuteInput.value
                 );
 
-            hourInput.value =
-                pad(hour);
+            let eh =
+                clampHour(
+                    endHourInput.value
+                );
 
-            minuteInput.value =
-                pad(minute);
+            let em =
+                clampMinute(
+                    endMinuteInput.value
+                );
+
+            startHourInput.value = pad(sh);
+            startMinuteInput.value = pad(sm);
+            endHourInput.value = pad(eh);
+            endMinuteInput.value = pad(em);
+
+            d.setHours(eh, em, 0, 0);
+
+            const startD = startDateInput.valueAsDate || new Date();
+            startD.setHours(sh, sm, 0, 0);
+
+            const times = {
+                startDate: Math.floor(startD.getTime() / 1000),
+                endDate: Math.floor(d.getTime() / 1000)
+            };
 
             savedTimes[
                 String(number)
-            ] = {
-                hour,
-                minute
-            };
+            ] = times;
 
             jobs.push({
                 botNumber:
                     number,
 
-                hour,
+                startDate: times.startDate,
 
-                minute
+                endDate: times.endDate
             });
         }
 
