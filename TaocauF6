@@ -1,0 +1,335 @@
+// ==UserScript==
+// @name         Botcake - Tạo câu với điều kiện lọc (F6)
+// @namespace    https://botcake.io/
+// @version      1.3.1
+// @description  F6, Alt+Shift+6 hoặc nút Chạy lọc: Thẻ Chặn/Không bằng, Số điện thoại/Không có, Ngày giờ đăng ký/Khoảng.
+// @match        https://botcake.io/*
+// @match        https://www.botcake.io/*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+
+(() => {
+  'use strict';
+
+  // Tên thẻ đã có trong dữ liệu Broadcast của repo. Đổi thành '' nếu muốn tự chọn.
+  const TAG_NAME = 'Chặn';
+  const STATE_KEY = 'botcake-f6-filter-pending';
+  const MAX_PENDING_MS = 2 * 60 * 1000;
+  let running = false;
+  let noticeTimer;
+  let tagClickedInPanel = null; // Chặn việc chọn lại (và vô tình bỏ chọn) khi chạy F6 lần nữa.
+
+  // Next.js gọi route nội bộ /chatbot/broadcast, nhưng URL thật trên trình duyệt
+  // là /<pageId>/broadcast (như /689375157595846/broadcast).
+  if (!/^\/(?:chatbot|\d+)\/broadcast(?:\/|$)/.test(location.pathname)) return;
+
+  const clean = (value) => (value || '').replace(/\s+/g, ' ').trim();
+  const text = (el) => clean(el?.textContent);
+  const buttons = (label) => [...document.querySelectorAll('button')]
+    .filter((el) => text(el) === label && !el.disabled);
+
+  function visible(el) {
+    if (!el || !el.isConnected) return false;
+    const style = getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden' &&
+      el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0;
+  }
+
+  function notify(message, error = false) {
+    console[error ? 'error' : 'info']('[Botcake F6]', message);
+    let box = document.getElementById('botcake-f6-status');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'botcake-f6-status';
+      Object.assign(box.style, {
+        position: 'fixed', top: '18px', right: '18px', zIndex: '2147483647',
+        maxWidth: '380px', padding: '12px 16px', borderRadius: '8px',
+        font: '14px/1.5 sans-serif', color: '#fff', boxShadow: '0 4px 18px #0004',
+      });
+      document.body.append(box);
+    }
+    box.style.background = error ? '#a32020' : '#176a4d';
+    box.textContent = `Botcake F6: ${message}`;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => box.remove(), 4000);
+  }
+
+  // MutationObserver + kiểm tra định kỳ: không dựa vào thời gian sleep cố định.
+  function waitFor(probe, description, timeout = 15000) {
+    return new Promise((resolve, reject) => {
+      let done = false;
+      let observer;
+      let interval;
+      let timer;
+      const finish = (result, failure) => {
+        if (done) return;
+        done = true;
+        observer?.disconnect();
+        clearInterval(interval);
+        clearTimeout(timer);
+        if (failure) reject(failure);
+        else resolve(result);
+      };
+      const check = () => {
+        try {
+          const result = probe();
+          if (result) finish(result);
+        } catch (err) {
+          finish(null, err);
+        }
+      };
+      observer = new MutationObserver(check);
+      observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style'] });
+      interval = setInterval(check, 250);
+      timer = setTimeout(() => finish(null, new Error(`Hết thời gian chờ: ${description}`)), timeout);
+      check();
+    });
+  }
+
+  function panel() {
+    const clearButton = buttons('Xóa tất cả lọc').find(visible);
+    return clearButton?.closest('.rounded-xl') || null;
+  }
+
+  function rows() {
+    const body = panel()?.querySelector('.data-collapsible');
+    return body ? [...body.querySelectorAll('.flex.gap-12')]
+      .filter((el) => el.querySelector(':scope > .ant-dropdown-trigger')) : [];
+  }
+
+  function rowAt(index) {
+    const row = rows()[index];
+    if (!row) throw new Error(`Không tìm thấy dòng điều kiện thứ ${index + 1}`);
+    return row;
+  }
+
+  // Trong HTML mẫu, mỗi dòng có dropdown điều kiện và 2 ant-select kế tiếp:
+  // [0] kiểu lọc, [1] giá trị (thẻ / số điện thoại / ngày giờ đăng).
+  function selects(row) {
+    return [...row.querySelectorAll(':scope > .w-full .ant-select')];
+  }
+
+  function chosen(select) {
+    return text(select?.querySelector('.ant-select-selection-item'));
+  }
+
+  const equals = (a, b) => clean(a).toLocaleLowerCase('vi') === clean(b).toLocaleLowerCase('vi');
+  const popupSelector = '.ant-dropdown, .ant-select-dropdown, .ant-popover, [role="menu"], [role="listbox"], .rc-virtual-list';
+  const itemSelector = '.ant-dropdown-menu-item, .ant-select-item-option, [role="menuitem"], [role="option"], .rc-virtual-list-holder-inner > *';
+
+  function popupOption(label) {
+    // Botcake dùng cả dropdown tùy biến lẫn Ant Select; các popup thường nằm ở
+    // cuối body chứ không ở bên trong dòng đang chọn.
+    const labels = Array.isArray(label) ? label : [label];
+    // Thứ tự trong labels là mức ưu tiên: “Không có” phải được chọn trước
+    // “Không”, dù hai mục cùng xuất hiện trong một menu.
+    for (const name of labels) {
+      for (const popup of document.querySelectorAll(popupSelector)) {
+        if (popup.classList.contains('ant-dropdown-trigger') ||
+            popup.classList.contains('ant-dropdown-hidden') ||
+            popup.classList.contains('ant-select-dropdown-hidden')) continue;
+        const items = [...popup.querySelectorAll(itemSelector)];
+        const exact = items.find((el) => visible(el) && equals(text(el), name));
+        if (exact) return exact;
+        const leaf = [...popup.querySelectorAll('span, div, li, button')]
+          .find((el) => visible(el) && equals(text(el), name) &&
+            ![...el.children].some((child) => equals(text(child), name)));
+        if (leaf) {
+          const target = leaf.closest(`${itemSelector}, li, button, .cursor-pointer`);
+          return target && popup.contains(target) && visible(target) ? target : leaf;
+        }
+      }
+    }
+    return null;
+  }
+
+  function typeIntoSearch(input, value) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  async function choose(trigger, label, kind) {
+    const caption = Array.isArray(label) ? label.join(' / ') : label;
+    if (!trigger || !visible(trigger)) throw new Error(`Không tìm thấy ô chọn cho “${caption}”`);
+    trigger.click();
+    // element.click() chỉ phát sự kiện click; một số bản Ant Select mở menu
+    // bằng mousedown trên selector, nên thử thêm chuột thật nếu chưa thấy mục.
+    let option = await waitFor(() => popupOption(label), `tùy chọn “${label}”`, 900).catch(() => null);
+    if (!option && kind !== 'dropdown') {
+      trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
+      trigger.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+      option = await waitFor(() => popupOption(label), `tùy chọn “${label}”`, 2500).catch(() => null);
+    }
+    // Danh sách thẻ có thể dài và chỉ render kết quả sau khi tìm kiếm.
+    if (!option && kind === 'tag') {
+      const input = trigger.closest('.ant-select')?.querySelector('input.ant-select-selection-search-input:not([readonly])');
+      if (input) {
+        input.focus();
+        typeIntoSearch(input, label);
+        option = await waitFor(() => popupOption(label), `thẻ “${caption}”`, 6000).catch(() => null);
+      }
+    }
+    if (!option) {
+      const open = [...document.querySelectorAll(popupSelector)]
+        .filter((el) => !el.classList.contains('ant-dropdown-trigger') && visible(el));
+      throw new Error(`Không thấy tùy chọn “${caption}” (menu đang hiển thị: ${open.length}). Hãy mở menu và gửi ảnh danh sách tùy chọn để kiểm tra.`);
+    }
+    if (kind === 'tag' && option.closest('.ant-select-item-option-selected, .ant-dropdown-menu-item-selected, [aria-selected="true"]')) return;
+    option.click();
+  }
+
+  async function ensureField(index, label) {
+    const labels = Array.isArray(label) ? label : [label];
+    const current = text(rowAt(index).querySelector(':scope > .ant-dropdown-trigger'));
+    if (labels.some((name) => equals(current, name))) return;
+    if (current && current !== 'Chọn điều kiện lọc') {
+      throw new Error(`Dòng ${index + 1} đang chọn “${current}”; không ghi đè điều kiện có sẵn.`);
+    }
+    await choose(rowAt(index).querySelector(':scope > .ant-dropdown-trigger'), labels, 'dropdown');
+    await waitFor(() => labels.some((name) => equals(text(rowAt(index).querySelector(':scope > .ant-dropdown-trigger')), name)),
+      `điều kiện “${labels.join(' / ')}”`);
+  }
+
+  async function ensureOperator(index, label) {
+    const labels = Array.isArray(label) ? label : [label];
+    const select = selects(rowAt(index))[0];
+    if (!select) throw new Error(`Không thấy ô kiểu lọc tại dòng ${index + 1}`);
+    if (labels.some((name) => equals(chosen(select), name))) return;
+    await choose(select.querySelector('.ant-select-selector'), labels, 'select');
+    await waitFor(() => labels.some((name) => equals(chosen(selects(rowAt(index))[0]), name)),
+      `kiểu lọc “${labels.join(' / ')}”`);
+  }
+
+  async function ensureRow(index) {
+    while (rows().length <= index) {
+      const before = rows().length;
+      const add = buttons('Thêm điều kiện').find((el) => panel()?.contains(el) && visible(el));
+      if (!add) throw new Error('Không tìm thấy nút “Thêm điều kiện”.');
+      add.click();
+      await waitFor(() => rows().length > before, 'dòng điều kiện mới');
+    }
+  }
+
+  function selectedTag() {
+    const row = rows()[0];
+    if (!row) return '';
+    const valueRegion = row.querySelector(':scope > .overflow-hidden') || selects(row)[1];
+    if (TAG_NAME.trim() && [...(valueRegion?.querySelectorAll('span, button') || [])]
+      .some((el) => equals(text(el), TAG_NAME))) return TAG_NAME.trim();
+    const chip = valueRegion?.querySelector('.ant-select-selection-item, .ant-tag, [data-tag-id]');
+    const name = text(chip);
+    return name && name !== 'Chọn thẻ' && name !== 'Thêm thẻ' ? name : '';
+  }
+
+  async function ensureTag() {
+    // UI của Botcake có thể chỉ hiển thị số lượng thẻ đã chọn, không hiện chữ
+    // “Chặn” trong ant-select-selection-item. Không chọn lần hai trên cùng form.
+    if (tagClickedInPanel === panel()) return;
+    const existing = selectedTag();
+    if (existing) {
+      if (TAG_NAME.trim() && !equals(existing, TAG_NAME)) {
+        // Bản UI này đôi khi chỉ hiển thị “1 thẻ” thay vì tên thẻ.
+        if (!/^\d+\s*(thẻ|tag|đã chọn)/i.test(existing)) {
+          throw new Error(`Dòng 1 đã chọn thẻ “${existing}”; không thay đổi thẻ có sẵn.`);
+        }
+        tagClickedInPanel = panel();
+        notify('Đã có thẻ được chọn; hãy kiểm tra đó là thẻ “Chặn” trước khi Lưu.');
+      }
+      return;
+    }
+    const row = rowAt(0);
+    const value = selects(row)[1];
+    const addTag = [...row.querySelectorAll('button')].find((el) => text(el) === 'Thêm thẻ');
+    const trigger = value?.querySelector('.ant-select-selector') || addTag;
+    if (!trigger) throw new Error('Không tìm thấy ô thêm/chọn thẻ ở dòng đầu.');
+    if (TAG_NAME.trim()) {
+      await choose(trigger, TAG_NAME.trim(), 'tag');
+      // Đã click đúng mục “Chặn”. Không chờ .ant-select-selection-item vì
+      // giao diện thực tế không dùng nó để hiển thị thẻ đã chọn.
+      tagClickedInPanel = panel();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (!equals(selectedTag(), TAG_NAME)) {
+        notify(`Đã click thẻ “${TAG_NAME}”; hãy kiểm tra thẻ trước khi Lưu.`);
+      }
+    } else {
+      if (!visible(trigger)) throw new Error('Ô chọn thẻ đang bị ẩn.');
+      trigger.click();
+      notify('Hãy chọn thẻ bạn muốn trong ô “Thêm/Chọn thẻ”; script sẽ tự chạy tiếp.');
+      await waitFor(selectedTag, 'bạn chọn thẻ (nhấn F6 để thử lại nếu quá 2 phút)', 120000);
+    }
+  }
+
+  async function openForm() {
+    if (panel()) return;
+    const create = buttons('Tạo mới').find(visible);
+    if (create) {
+      // Đánh dấu trước khi click, phòng trường hợp chuyển trang (full navigation).
+      sessionStorage.setItem(STATE_KEY, String(Date.now()));
+      create.click();
+    }
+    await waitFor(panel, 'màn hình tạo mới', 30000);
+  }
+
+  async function run() {
+    if (running) return;
+    running = true;
+    try {
+      await openForm();
+      if (!rows().length) {
+        const filter = buttons('Điều kiện lọc').find((el) => panel()?.contains(el) && visible(el));
+        if (!filter) throw new Error('Không tìm thấy nút “Điều kiện lọc”.');
+        filter.click();
+        await waitFor(() => rows().length > 0, 'bảng điều kiện lọc');
+      }
+      await ensureField(0, 'Thẻ');
+      await ensureOperator(0, 'Không bằng');
+      await ensureTag();
+      await ensureRow(1);
+      await ensureField(1, 'Số điện thoại');
+      // Tên thực tế của mục lọc SĐT là “Không có” (dữ liệu cũ gọi là “Không”).
+      await ensureOperator(1, ['Không có', 'Không']);
+      await ensureRow(2);
+      await ensureField(2, ['Ngày giờ đăng ký', 'Ngày giờ đăng']);
+      await ensureOperator(2, ['Khoảng', 'Khoảng thời gian']);
+      // Hoàn tất im lặng; không ghim thông báo lên màn hình.
+    } catch (err) {
+      notify(err.message || String(err), true);
+    } finally {
+      sessionStorage.removeItem(STATE_KEY);
+      running = false;
+    }
+  }
+
+  // F6 thường được trình duyệt dành riêng để chuyển focus tới thanh địa chỉ/
+  // ô tìm kiếm: nếu phím không được chuyển cho trang, JS không thể chặn nó.
+  // Bắt sự kiện từ capture phase khi có thể; luôn có hai cách kích hoạt dự phòng.
+  window.addEventListener('keydown', (event) => {
+    const f6 = event.key === 'F6' && !event.ctrlKey && !event.altKey && !event.metaKey;
+    const alternative = event.code === 'Digit6' && event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey;
+    if (event.repeat || (!f6 && !alternative)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!running) void run();
+  }, true);
+
+  const triggerButton = document.createElement('button');
+  triggerButton.type = 'button';
+  triggerButton.id = 'botcake-f6-trigger';
+  triggerButton.textContent = '▶ Chạy lọc';
+  triggerButton.title = 'Thiết lập 3 điều kiện lọc (Alt+Shift+6; F6 nếu trình duyệt cho phép)';
+  Object.assign(triggerButton.style, {
+    position: 'fixed', bottom: '20px', right: '20px', zIndex: '2147483647',
+    background: '#176a4d', color: '#fff', border: '0', borderRadius: '8px',
+    padding: '10px 14px', boxShadow: '0 4px 16px #0004', cursor: 'pointer',
+    font: 'bold 14px sans-serif',
+  });
+  triggerButton.addEventListener('click', () => { if (!running) void run(); });
+  document.body.append(triggerButton);
+
+  // Tiếp tục tự động nếu nút Tạo mới dẫn sang trang khác cùng tab.
+  const pending = Number(sessionStorage.getItem(STATE_KEY));
+  if (pending && Date.now() - pending < MAX_PENDING_MS) void run();
+  else sessionStorage.removeItem(STATE_KEY);
+})();
