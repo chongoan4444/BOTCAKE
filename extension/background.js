@@ -37,14 +37,23 @@ const CONFIG = {
 // =========================================================
 
 function isBotcake(url) {
+
     try {
+
+        const hostname = new URL(url).hostname;
+
         return (
-            new URL(url)
-                .hostname ===
-            'botcake.io'
+
+            hostname === 'botcake.io' ||
+
+            hostname === 'www.botcake.io'
+
         );
+
     } catch (_) {
+
         return false;
+
     }
 }
 

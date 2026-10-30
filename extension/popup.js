@@ -211,18 +211,16 @@ autoSave.addEventListener(
 
 async function loadBotcakeTabs() {
     const tabs =
-        await chrome.tabs.query({
-            currentWindow: true
-        });
+        await chrome.tabs.query({});
 
     const botTabs =
         tabs
             .filter(tab => {
                 try {
+                    const hostname = new URL(tab.url).hostname;
                     return (
-                        new URL(tab.url)
-                            .hostname ===
-                        'botcake.io'
+                        hostname === 'botcake.io' ||
+                        hostname === 'www.botcake.io'
                     );
                 } catch (_) {
                     return false;
