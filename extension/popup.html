@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+
+    <title>
+        Botcake Auto
+    </title>
+
+    <link
+        rel="stylesheet"
+        href="popup.css"
+    >
+</head>
+
+<body>
+
+<div class="box">
+
+    <div class="title">
+        🤖 BOTCAKE AUTO
+    </div>
+
+    <!-- TAB -->
+    <div class="section">
+
+        <label>
+            TAB BOTCAKE
+        </label>
+
+        <select id="botcakeTab">
+            <option value="1">
+                Botcake #1
+            </option>
+        </select>
+
+        <div
+            id="tabInfo"
+            class="hint"
+        >
+            Đang tìm Botcake...
+        </div>
+
+    </div>
+
+    <!-- MESSAGE -->
+    <div class="section">
+
+        <label>
+            NỘI DUNG TIN NHẮN
+        </label>
+
+        <textarea
+            id="message"
+            maxlength="1200"
+            placeholder="Nhập nội dung..."
+        ></textarea>
+
+        <div
+            id="charCount"
+            class="count"
+        >
+            0 / 1200
+        </div>
+
+    </div>
+
+    <!-- TIME -->
+    <div class="section">
+
+        <label>
+            GIỜ KẾT THÚC
+        </label>
+
+        <div class="time">
+
+            <input
+                id="hour"
+                type="number"
+                min="0"
+                max="23"
+            >
+
+            <span>
+                :
+            </span>
+
+            <input
+                id="minute"
+                type="number"
+                min="0"
+                max="59"
+            >
+
+        </div>
+
+        <div class="quick">
+
+            <button data-add="5">
+                +5p
+            </button>
+
+            <button data-add="15">
+                +15p
+            </button>
+
+            <button data-add="30">
+                +30p
+            </button>
+
+            <button data-add="60">
+                +1h
+            </button>
+
+        </div>
+
+    </div>
+
+    <!-- AUTOSAVE -->
+    <div class="autosave">
+
+        <div>
+            <b>
+                💾 TỰ LƯU
+            </b>
+
+            <div id="saveText">
+                Đang bật
+            </div>
+        </div>
+
+        <label class="switch">
+
+            <input
+                id="autoSave"
+                type="checkbox"
+            >
+
+            <span class="slider"></span>
+
+        </label>
+
+    </div>
+
+    <!-- RUN -->
+    <button
+        id="run"
+        class="run"
+    >
+        ⚡ CHẠY BOTCAKE
+    </button>
+
+    <div id="status">
+        Sẵn sàng
+    </div>
+
+</div>
+
+<script src="popup.js"></script>
+
+</body>
+</html>
