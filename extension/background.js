@@ -1963,144 +1963,6 @@ async function setFilterConditions(
     return pageResult;
 }
 
-async function setFilterConditionsWithHarVerification(target, tabId, startDate, endDate) {
-    const requestBodies = [];
-    const pendingPostData = new Set();
-    let previewRequestCount = 0;
-
-    const listener = (source, method, params) => {
-        if (
-            source?.tabId !== tabId ||
-            method !== 'Network.requestWillBeSent' ||
-            !params?.request?.url
-        ) return;
-
-        try {
-            const url = new URL(params.request.url);
-            if (!url.pathname.endsWith('/customers/send_broadcast_count')) return;
-            previewRequestCount++;
-
-            if (typeof params.request.postData === 'string') {
-                requestBodies.push(params.request.postData);
-                return;
-            }
-
-            // Chrome may omit the body from requestWillBeSent while still
-            // reporting hasPostData; fetch it by requestId before rejecting.
-            const requestId = params.requestId;
-            if (!requestId || pendingPostData.has(requestId)) return;
-            pendingPostData.add(requestId);
-            cdp(target, 'Network.getRequestPostData', { requestId })
-                .then(result => {
-                    if (typeof result?.postData === 'string') requestBodies.push(result.postData);
-                })
-                .catch(() => {})
-                .finally(() => pendingPostData.delete(requestId));
-        } catch (_) {}
-    };
-
-    const parseForm = body => {
-        const fields = {};
-        const parts = /name="([^"]+)"[^\r\n]*\r?\n\r?\n([^\r\n]*)/g;
-        let match;
-        while ((match = parts.exec(body))) {
-            fields[match[1]] = match[2];
-        }
-
-        // Support a URL-encoded body if Botcake changes the preview form
-        // encoding; only recognized filter keys are used below.
-        if (!Object.keys(fields).length && body.includes('=')) {
-            try {
-                for (const [key, value] of new URLSearchParams(body)) fields[key] = value;
-            } catch (_) {}
-        }
-        return fields;
-    };
-
-    const summarizeFilters = body => {
-        const fields = parseForm(body);
-        const indexes = type => {
-            for (let i = 0; i < 12; i++) {
-                if (fields[`filter[${i}][type]`] === type) return i;
-            }
-            return -1;
-        };
-        const tag = indexes('tags');
-        const phone = indexes('phone_number');
-        const registered = indexes('last_subscribed');
-        const filters = [];
-        for (let i = 0; i < 12; i++) {
-            const type = fields[`filter[${i}][type]`];
-            if (type) filters.push(`${type}/${fields[`filter[${i}][filter_type]`] || '?'}`);
-        }
-        const tagOk = tag >= 0 &&
-            fields[`filter[${tag}][filter_type]`] === 'not_equal' &&
-            fields[`filter[${tag}][tags][0][label]`] === 'Chặn';
-        const phoneOk = phone >= 0 &&
-            fields[`filter[${phone}][filter_type]`] === 'not_contains' &&
-            fields[`filter[${phone}][value]`] === 'phone';
-        const dateOk = registered >= 0 &&
-            fields[`filter[${registered}][filter_type]`] === 'ranger' &&
-            Number(fields[`filter[${registered}][start_date]`]) === Number(startDate) &&
-            Number(fields[`filter[${registered}][end_date]`]) === Number(endDate);
-        return `${fields.filter_type || 'AND?'}: ${filters.join(', ') || 'không đọc được filter'}; checks tag=${tagOk ? 'ok' : 'lệch'}, phone=${phoneOk ? 'ok' : 'lệch'}, timestamp=${dateOk ? 'ok' : 'lệch'}`;
-    };
-
-    const hasHarFilters = body => {
-        const fields = parseForm(body);
-        const findIndex = type => {
-            for (let i = 0; i < 12; i++) {
-                if (fields[`filter[${i}][type]`] === type) return i;
-            }
-            return -1;
-        };
-
-        const tag = findIndex('tags');
-        const phone = findIndex('phone_number');
-        const registered = findIndex('last_subscribed');
-        if (tag < 0 || phone < 0 || registered < 0) return false;
-
-        return (
-            fields[`filter[${tag}][filter_type]`] === 'not_equal' &&
-            fields[`filter[${tag}][tags][0][label]`] === 'Chặn' &&
-            fields[`filter[${phone}][filter_type]`] === 'not_contains' &&
-            fields[`filter[${phone}][value]`] === 'phone' &&
-            fields[`filter[${registered}][filter_type]`] === 'ranger' &&
-            fields.filter_type === 'and' &&
-            Number(fields[`filter[${registered}][start_date]`]) === Number(startDate) &&
-            Number(fields[`filter[${registered}][end_date]`]) === Number(endDate)
-        );
-    };
-
-    chrome.debugger.onEvent.addListener(listener);
-    try {
-        await cdp(target, 'Network.enable', { maxPostDataSize: 1000000 });
-        const result = await setFilterConditions(target, startDate, endDate);
-        if (!result?.ok) {
-            throw new Error(result?.error || 'Botcake không hoàn tất điều kiện lọc');
-        }
-
-        const deadline = Date.now() + 15000;
-        while (Date.now() < deadline) {
-            if (requestBodies.some(hasHarFilters)) return result;
-            await sleep(25);
-        }
-
-        const summaries = [...new Set(requestBodies.map(summarizeFilters))].slice(-3);
-        const detail = previewRequestCount
-            ? `Botcake có ${previewRequestCount} request xem trước; payload ghi nhận: ${summaries.join(' | ') || 'chưa lấy được body'}.`
-            : 'Không thấy request xem trước send_broadcast_count từ tab Botcake.';
-        throw new Error(
-            `Đã thao tác bộ lọc nhưng chưa xác minh được payload HAR (${detail}) Dừng trước khi đặt lịch để tránh gửi sai đối tượng.`
-        );
-    } finally {
-        chrome.debugger.onEvent.removeListener(listener);
-        try {
-            await cdp(target, 'Network.disable', {});
-        } catch (_) {}
-    }
-}
-
 async function setFilterConditionsPage(data) {
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -2652,15 +2514,11 @@ async function processOneBotcake(
         await clickNext(target);
 
         // Không được đi tiếp tới phần lên lịch nếu bất kỳ điều kiện lọc nào lỗi.
-        const filterResult = await setFilterConditionsWithHarVerification(
+        await setFilterConditions(
             target,
-            tab.id,
             job.startDate || null,
             job.endDate || null
         );
-        if (!filterResult?.ok) {
-            throw new Error(filterResult?.error || 'Không tạo đủ điều kiện lọc');
-        }
 
         // WAIT DATE
         await waitEndDate(
