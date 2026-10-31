@@ -2336,74 +2336,68 @@ async function openCreateFormPage() {
         return false;
     };
 
-    // Nhấn nút "Tiếp theo" trên giao diện điền câu
-    const clickTiepTheo = () => {
-
-        const btns =
-            buttons('Tiếp theo');
-
-        if (
-            btns.length > 0
-        ) {
-
-            btns[0].click();
-
-            return true;
+    const waitFor = async (predicate, timeout = 15000) => {
+        const started = Date.now();
+        while (Date.now() - started < timeout) {
+            if (predicate()) return true;
+            await wait(150);
         }
-
         return false;
     };
 
-    try {
-
-        // Bước 1: Nhấn "Tạo mới"
-        const createBtn =
-            buttons('Tạo mới').find(
-                el => visible(el)
-            );
-
-        if (!createBtn) {
-
+    const returnToMessageScreen = async () => {
+        if (!clickBack()) {
             return {
                 ok: false,
-                error:
-                    'Không tìm thấy nút “Tạo mới”'
+                error: 'Đang ở màn hình lọc nhưng không tìm thấy nút quay lại'
+            };
+        }
+
+        if (!(await waitFor(isMessageInterface))) {
+            return {
+                ok: false,
+                error: 'Đã bấm quay lại nhưng màn hình điền câu chưa xuất hiện'
+            };
+        }
+
+        return { ok: true };
+    };
+
+    try {
+        // Handle the current screen first. Do not look for “Tạo mới” when
+        // Botcake is already inside an existing message/filter flow.
+        if (isFilterInterface()) {
+            return await returnToMessageScreen();
+        }
+
+        if (isMessageInterface()) {
+            return { ok: true };
+        }
+
+        const createBtn = buttons('Tạo mới')[0];
+        if (!createBtn) {
+            return {
+                ok: false,
+                error: 'Không tìm thấy nút “Tạo mới” và cũng không nhận diện được màn hình hiện tại'
             };
         }
 
         createBtn.click();
 
-        // Chờ trang ổn định
-        await wait(1000);
-
-        // Bước 2: Nếu đang ở giao diện tạo lọc → nhấn nút quay lại (back) để về giao diện điền câu
-        if (isFilterInterface()) {
-
-            if (!clickBack()) {
-
-                return {
-                    ok: false,
-                    error:
-                        'Không tìm thấy nút quay lại (back) trên giao diện tạo lọc'
-                };
-            }
-
-            await wait(1000);
-        }
-
-        // Bước 3: Xác nhận đang ở giao diện điền câu (có nút "Tiếp theo")
-        if (!isMessageInterface()) {
-
+        if (!(await waitFor(() => isMessageInterface() || isFilterInterface()))) {
             return {
                 ok: false,
-                error:
-                    'Không ở giao diện điền câu (không tìm thấy nút “Tiếp theo”)'
+                error: 'Đã bấm “Tạo mới” nhưng không thấy màn hình điền câu hoặc màn hình lọc'
             };
         }
 
-        return {
-            ok: true
-        };
+        if (isFilterInterface()) {
+            return await returnToMessageScreen();
+        }
+
+        return isMessageInterface()
+            ? { ok: true }
+            : { ok: false, error: 'Không mở được màn hình điền câu' };
 
     } catch (error) {
 
