@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Botcake Auto",
+  "version": "4.0.0",
+  "description": "Tự động nhập nội dung, chuyển bước, đặt giờ và lưu Botcake",
+  "permissions": [
+    "tabs",
+    "storage",
+    "debugger",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://botcake.io/*"
+  ],
+  "action": {
+    "default_title": "Botcake Auto",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
