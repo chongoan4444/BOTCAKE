@@ -2388,64 +2388,48 @@ async function openCreateFormPage() {
                     visible(el)
             );
 
-    // Kiểm tra xem có đang ở giao diện tạo lọc (có panel "Xóa tất cả lọc")
-    const isFilterInterface = () => {
-
-        const clear =
-            buttons('Xóa tất cả lọc').find(
-                el => visible(el)
-            );
-
-        return clear
-            ? clear.closest('.rounded-xl') !== null
-            : false;
-    };
-
-    // Kiểm tra xem có đang ở giao diện điền câu (có nút "Tiếp theo")
-    const isMessageInterface = () =>
-        buttons('Tiếp theo').length > 0;
-
-    // Nhấn nút quay lại (back) trên giao diện tạo lọc
-    // SVG path: M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80...
-    const clickBack = () => {
-
-        const backBtns = [
-            ...document.querySelectorAll(
-                'button'
-            )
-        ].filter(el => {
-
-            const svg =
-                el.querySelector('svg');
-
-            if (!svg) {
-                return false;
-            }
-
-            const path =
-                svg.querySelector('path');
-
-            if (!path) {
-                return false;
-            }
-
-            const d =
-                path.getAttribute('d') || '';
-
-            return d.startsWith('M165.66,202.34');
+    // Botcake thay đổi wrapper theo từng phiên bản. Nhận diện màn hình lọc
+    // bằng nút “Xóa tất cả lọc” HOẶC icon back đặc trưng, không phụ thuộc
+    // clear button có còn nằm trong .rounded-xl hay đang bị disabled.
+    const filterBackButtons = () =>
+        [...document.querySelectorAll('button')].filter(el => {
+            const path = el.querySelector('svg path');
+            return (path?.getAttribute('d') || '').startsWith('M165.66,202.34');
         });
 
-        if (
-            backBtns.length > 0 &&
-            visible(backBtns[0])
-        ) {
+    const isFilterInterface = () => {
+        const hasClear = [...document.querySelectorAll('button')].some(
+            el => text(el) === 'Xóa tất cả lọc' && visible(el)
+        );
+        return hasClear || filterBackButtons().some(visible);
+    };
 
-            backBtns[0].click();
+    // Tiếp theo có thể đang disabled khi nội dung còn trống. Vẫn phải nhận ra
+    // đây là màn hình điền câu để script nhập nội dung trước.
+    const isMessageInterface = () =>
+        [...document.querySelectorAll('button')].some(
+            el => text(el) === 'Tiếp theo' && visible(el)
+        );
 
-            return true;
-        }
+    // Nhấn nút quay lại trên giao diện lọc. Chọn nút visible đầu tiên để tránh
+    // mắc vào icon trùng nhưng nằm trong drawer/modal ẩn.
+    const clickBack = () => {
+        const backButton = filterBackButtons().find(visible);
+        if (!backButton) return false;
 
-        return false;
+        backButton.scrollIntoView({ block: 'center' });
+        const rect = backButton.getBoundingClientRect();
+        const options = {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2
+        };
+        backButton.dispatchEvent(new MouseEvent('mousedown', options));
+        backButton.dispatchEvent(new MouseEvent('mouseup', options));
+        backButton.click();
+        return true;
     };
 
     const waitFor = async (predicate, timeout = 15000) => {
