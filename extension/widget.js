@@ -51,16 +51,14 @@
 
     function getDefaultTime() {
         const now = new Date();
-
         const start = new Date(now);
-        start.setMinutes(
-            now.getMinutes() + 15
-        );
+        start.setHours(22, 31, 0, 0);
 
-        const end = new Date(now);
-        end.setMinutes(
-            now.getMinutes() + 45
-        );
+        // If 22:31 has passed today, default to tomorrow rather than a past time.
+        if (start <= now) start.setDate(start.getDate() + 1);
+
+        const end = new Date(start);
+        end.setMinutes(end.getMinutes() + 30);
 
         return {
             startDate: Math.floor(start.getTime() / 1000),
@@ -532,19 +530,12 @@
             ].join('-');
         }
 
-        const legacyStart = typeof existingTime.startDate === 'number'
-            ? new Date(existingTime.startDate * 1000)
-            : defaultStart;
-        const legacyEnd = typeof existingTime.endDate === 'number'
-            ? new Date(existingTime.endDate * 1000)
-            : defaultEnd;
-
         const startDateValue = getDateField(existingTime.startDate, defaultStart);
         const endDateValue = getDateField(existingTime.endDate, defaultEnd);
-        const startHourValue = existingTime.startHour ?? pad(legacyStart.getHours());
-        const startMinuteValue = existingTime.startMinute ?? pad(legacyStart.getMinutes());
-        const endHourValue = existingTime.endHour ?? existingTime.hour ?? pad(legacyEnd.getHours());
-        const endMinuteValue = existingTime.endMinute ?? existingTime.minute ?? pad(legacyEnd.getMinutes());
+        const startHourValue = existingTime.startHour ?? pad(defaultStart.getHours());
+        const startMinuteValue = existingTime.startMinute ?? pad(defaultStart.getMinutes());
+        const endHourValue = existingTime.endHour ?? existingTime.hour ?? pad(defaultEnd.getHours());
+        const endMinuteValue = existingTime.endMinute ?? existingTime.minute ?? pad(defaultEnd.getMinutes());
 
         const row =
             document.createElement(
