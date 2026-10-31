@@ -5,6 +5,7 @@
 
 #bc-floating-root {
     position: fixed !important;
+    pointer-events: auto !important;
 
     top: 60px;
     right: 20px;
@@ -84,12 +85,20 @@
 }
 
 .bc-header-actions {
+    position: relative;
+    z-index: 2;
+    pointer-events: auto !important;
+
     display: flex;
 
     gap: 2px;
 }
 
 .bc-window-btn {
+    position: relative;
+    z-index: 2;
+    pointer-events: auto !important;
+
     width: 25px;
     height: 25px;
 

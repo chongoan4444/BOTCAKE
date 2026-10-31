@@ -168,6 +168,7 @@
                         class="bc-window-btn bc-close-btn"
                         type="button"
                         title="Đóng"
+                        aria-label="Đóng Botcake Auto"
                     >
                         ×
                     </button>
@@ -1545,21 +1546,32 @@
     // CLOSE
     // =========================================================
 
-    closeBtn.addEventListener(
-        'click',
-        event => {
+    let closingWidget = false;
+    const closeWidget = event => {
+        if (closingWidget) return;
+        closingWidget = true;
+        event?.preventDefault();
+        event?.stopImmediatePropagation();
+        event?.stopPropagation();
 
-            event.stopPropagation();
+        savePosition();
+        root.style.setProperty('display', 'none', 'important');
+        chrome.storage.local.set({
+            [STORAGE.VISIBLE]: false,
+            [STORAGE.MINIMIZED]: false
+        });
+        root.remove();
+    };
 
-            savePosition();
-
-            chrome.storage.local.set({
-                [STORAGE.VISIBLE]: false
-            });
-
-            root.remove();
-        }
-    );
+    // Handle pointer and keyboard-generated clicks at capture phase so page
+    // handlers or the draggable header cannot swallow the close action.
+    closeBtn.addEventListener('pointerup', event => {
+        if (event.button === 0) closeWidget(event);
+    }, true);
+    closeBtn.addEventListener('click', closeWidget, true);
+    closeBtn.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') closeWidget(event);
+    }, true);
 
     // =========================================================
     // WINDOW RESIZE
