@@ -2237,22 +2237,46 @@ async function setFilterConditionsPage(data) {
             await waitFor(() => andRadio.checked, 3000, 'chế độ lọc AND');
         }
 
+        // F6 clicks “Điều kiện lọc” to expand the section when the form
+        // exists but its condition rows are still collapsed.
+        if (!rows().length) {
+            const filterButton = buttons('Điều kiện lọc').find(button => panel()?.contains(button) && visible(button));
+            if (!filterButton) throw new Error('Không tìm thấy nút “Điều kiện lọc” trong form đang mở');
+            filterButton.click();
+            await waitFor(() => rows().length > 0, 15000, 'bảng điều kiện lọc');
+        }
+
         await ensureRow(0);
 
-        // 1) Thẻ != Chặn
+        // 1) Thẻ != Chặn — follow F6's safe handling: some Botcake builds
+        // show only “1 thẻ” after selection, so never click the same chip again.
         await ensureField(0, 'Thẻ');
         await ensureOperator(0, 'Không bằng');
-        const tagSelect = selects(rowAt(0))[1];
-        const addTagButton = [...rowAt(0).querySelectorAll('button')].find(button => text(button) === 'Thêm thẻ');
+        const tagRow = rowAt(0);
+        const tagSelect = selects(tagRow)[1];
+        const addTagButton = [...tagRow.querySelectorAll('button')].find(button => text(button) === 'Thêm thẻ');
         const tagTrigger = tagSelect?.querySelector('.ant-select-selector') || addTagButton;
         if (!tagTrigger) throw new Error('Không tìm thấy ô chọn thẻ ở dòng đầu');
-        const tagIsSelected = () => {
-            const selected = chosen(selects(rowAt(0))[1]);
-            return equals(selected, 'Chặn') || [...rowAt(0).querySelectorAll('.ant-select-selection-item, .ant-tag')].some(item => equals(text(item), 'Chặn'));
+
+        const selectedTagLabel = () => {
+            const valueRegion = tagRow.querySelector(':scope > .overflow-hidden') || tagSelect;
+            const exact = [...(valueRegion?.querySelectorAll('span, button') || [])]
+                .find(element => equals(text(element), 'Chặn'));
+            if (exact) return 'Chặn';
+            const chip = valueRegion?.querySelector('.ant-select-selection-item, .ant-tag, [data-tag-id]');
+            const label = text(chip);
+            return label && !['Chọn thẻ', 'Thêm thẻ'].some(value => equals(label, value)) ? label : '';
         };
-        if (!tagIsSelected()) {
+
+        const currentTag = selectedTagLabel();
+        if (currentTag && !equals(currentTag, 'Chặn') && !/^\d+\s*(thẻ|tag|đã chọn)/i.test(currentTag)) {
+            throw new Error(`Dòng 1 đang có thẻ “${currentTag}”, không tự ý thay đổi`);
+        }
+        if (!currentTag) {
             await choose(tagTrigger, 'Chặn', 'tag');
-            await waitFor(tagIsSelected, 5000, 'thẻ Chặn');
+            // UI may show only a chip count; the HAR-backed request check below
+            // verifies the actual selected tag label before scheduling.
+            await sleep(250);
         }
 
         // 2) Số điện thoại = Không có
