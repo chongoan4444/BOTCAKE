@@ -2389,12 +2389,25 @@ async function openCreateFormPage() {
             );
 
     // Botcake thay đổi wrapper theo từng phiên bản. Nhận diện màn hình lọc
-    // bằng nút “Xóa tất cả lọc” HOẶC icon back đặc trưng, không phụ thuộc
-    // clear button có còn nằm trong .rounded-xl hay đang bị disabled.
+    // bằng nút “Xóa tất cả lọc” hoặc đúng nút back ở header “Bảng điều khiển /
+    // Quay lại nội dung”; không dựa vào SVG đơn lẻ vì sidebar cũng dùng SVG đó.
     const filterBackButtons = () =>
         [...document.querySelectorAll('button')].filter(el => {
             const path = el.querySelector('svg path');
-            return (path?.getAttribute('d') || '').startsWith('M165.66,202.34');
+            const classList = el.classList;
+            const isFilterHeaderButton =
+                classList.contains('ant-btn-round') &&
+                classList.contains('ant-btn-text') &&
+                classList.contains('ant-btn-icon-only');
+            const headerText = text(el.parentElement);
+
+            // The same SVG path is also used by the sidebar-collapse control.
+            // The actual “Quay lại nội dung” control in the saved HTML is the
+            // Ant round/text/icon-only button beside the “Bảng điều khiển” title.
+            return isFilterHeaderButton &&
+                (path?.getAttribute('d') || '').startsWith('M165.66,202.34') &&
+                headerText.includes('Bảng điều khiển') &&
+                headerText.includes('Quay lại nội dung');
         });
 
     const isFilterInterface = () => {
