@@ -63,51 +63,31 @@ function isBotcake(url) {
 
 chrome.action.onClicked.addListener(
     async tab => {
+        if (!tab?.id || !tab?.url) return;
 
-        if (
-            !tab?.id ||
-            !tab?.url
-        ) {
-            return;
-        }
-
-        if (
-            tab.url.startsWith('chrome://') ||
-            tab.url.startsWith('chrome-extension://') ||
-            tab.url.startsWith('edge://') ||
-            tab.url.startsWith('about:')
-        ) {
+        if (/^(chrome|edge|about|chrome-extension):/i.test(tab.url)) {
             return;
         }
 
         try {
+            // Toolbar click always opens the full panel, even if the widget
+            // was previously minimized or closed.
+            await chrome.storage.local.set({
+                bc_multi_visible_v6: true,
+                bc_multi_minimized_v6: false
+            });
 
             await chrome.scripting.insertCSS({
-                target: {
-                    tabId: tab.id
-                },
-
-                files: [
-                    'widget.css'
-                ]
+                target: { tabId: tab.id },
+                files: ['widget.css']
             });
 
             await chrome.scripting.executeScript({
-                target: {
-                    tabId: tab.id
-                },
-
-                files: [
-                    'widget.js'
-                ]
+                target: { tabId: tab.id },
+                files: ['widget.js']
             });
-
         } catch (error) {
-
-            console.error(
-                '[Botcake Widget]',
-                error
-            );
+            console.error('[Botcake Widget]', error);
         }
     }
 );
@@ -1976,677 +1956,231 @@ async function setFilterConditions(
         );
     }
 
-    return response.result?.value;
+    const pageResult = response.result?.value;
+    if (!pageResult?.ok) {
+        throw new Error(pageResult?.error || 'Không hoàn tất điều kiện lọc');
+    }
+    return pageResult;
 }
 
-async function setFilterConditionsPage(
-    data
-) {
+async function setFilterConditionsPage(data) {
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-    const wait =
-        ms =>
-            new Promise(
-                resolve =>
-                    setTimeout(
-                        resolve,
-                        ms
-                    )
-            );
+    const waitFor = (getValue, timeout = 10000, description = 'điều kiện lọc') =>
+        new Promise((resolve, reject) => {
+            const started = Date.now();
+            const poll = () => {
+                let value;
+                try {
+                    value = getValue();
+                } catch (error) {
+                    reject(error);
+                    return;
+                }
+                if (value) {
+                    resolve(value);
+                } else if (Date.now() - started >= timeout) {
+                    reject(new Error(`Hết thời gian chờ ${description}`));
+                } else {
+                    setTimeout(poll, 100);
+                }
+            };
+            poll();
+        });
 
-    const clean =
-        value =>
-            (value || '')
-                .replace(
-                    /\s+/g,
-                    ' '
-                )
-                .trim();
+    const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
+    const text = element => clean(element?.textContent);
+    const visible = element => {
+        if (!element?.isConnected) return false;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    };
+    const equals = (a, b) => clean(a).toLocaleLowerCase('vi') === clean(b).toLocaleLowerCase('vi');
 
-    const text =
-        el =>
-            clean(
-                el?.textContent
-            );
-
-    const visible =
-        el => {
-            if (
-                !el ||
-                !el.isConnected
-            ) {
-                return false;
-            }
-
-            const style =
-                getComputedStyle(
-                    el
-                );
-
-            return (
-                style.display !== 'none' &&
-                style.visibility !== 'hidden' &&
-                el.getBoundingClientRect().width > 0 &&
-                el.getBoundingClientRect().height > 0
-            );
-        };
-
-    const buttons =
-        label =>
-            [
-                ...document.querySelectorAll(
-                    'button'
-                )
-            ].filter(
-                el =>
-                    text(el) === label &&
-                    !el.disabled &&
-                    visible(el)
-            );
+    const buttons = label => [...document.querySelectorAll('button')]
+        .filter(button => text(button) === label && !button.disabled && visible(button));
 
     const panel = () => {
-
-        const clear =
-            buttons('Xóa tất cả lọc').find(
-                el => visible(el)
-            );
-
-        return clear
-            ? clear.closest('.rounded-xl') ||
-                null
-            : null;
+        const clearButton = buttons('Xóa tất cả lọc')[0];
+        return clearButton?.closest('.rounded-xl') || null;
     };
 
     const rows = () => {
-
-        const body =
-            panel()?.querySelector(
-                '.data-collapsible'
-            );
-
-        return body
-            ? [
-                ...body.querySelectorAll(
-                    '.flex.gap-12'
-                )
-            ].filter(
-                el =>
-                    el.querySelector(
-                        ':scope > .ant-dropdown-trigger'
-                    )
-            )
-            : [];
+        const body = panel()?.querySelector('.data-collapsible');
+        if (!body) return [];
+        return [...body.querySelectorAll('.flex.gap-12')]
+            .filter(row => row.querySelector(':scope > .ant-dropdown-trigger'));
     };
 
-    const rowAt =
-        index => {
-            const row =
-                rows()[index];
+    const rowAt = index => {
+        const row = rows()[index];
+        if (!row) throw new Error(`Không tìm thấy dòng điều kiện thứ ${index + 1}`);
+        return row;
+    };
 
-            if (!row) {
-                throw new Error(
-                    `Không tìm thấy dòng điều kiện thứ ${
-                        index + 1
-                    }`
-                );
-            }
+    const selects = row => [...row.querySelectorAll(':scope > .w-full .ant-select')];
+    const chosen = select => text(select?.querySelector('.ant-select-selection-item'));
 
-            return row;
-        };
+    const popupSelector = '.ant-dropdown, .ant-select-dropdown, .ant-popover, [role="menu"], [role="listbox"], .rc-virtual-list';
+    const itemSelector = '.ant-dropdown-menu-item, .ant-select-item-option, [role="menuitem"], [role="option"], .rc-virtual-list-holder-inner > *';
 
-    const selects =
-        row =>
-            [
-                ...row.querySelectorAll(
-                    ':scope > .w-full .ant-select'
-                )
-            ];
-
-    const chosen =
-        select =>
-            text(
-                select?.querySelector(
-                    '.ant-select-selection-item'
-                )
-            );
-
-    const equals =
-        (a, b) =>
-            clean(a)
-                .toLocaleLowerCase('vi') ===
-            clean(b)
-                .toLocaleLowerCase('vi');
-
-    const popupSelector =
-        '.ant-dropdown, .ant-select-dropdown, .ant-popover, [role="menu"], [role="listbox"], .rc-virtual-list';
-
-    const itemSelector =
-        '.ant-dropdown-menu-item, .ant-select-item-option, [role="menuitem"], [role="option"], .rc-virtual-list-holder-inner > *';
-
-    function popupOption(
-        label
-    ) {
-
-        const labels =
-            Array.isArray(label)
-                ? label
-                : [label];
-
-        for (const name of labels) {
-
-            for (const popup of document.querySelectorAll(
-                popupSelector
-            )) {
-
-                if (
-                    popup.classList.contains(
-                        'ant-dropdown-trigger'
-                    ) ||
-                    popup.classList.contains(
-                        'ant-dropdown-hidden'
-                    ) ||
-                    popup.classList.contains(
-                        'ant-select-dropdown-hidden'
-                    )
-                ) {
-                    continue;
-                }
-
-                const items = [
-                    ...popup.querySelectorAll(
-                        itemSelector
-                    )
-                ];
-
-                const exact =
-                    items.find(
-                        el =>
-                            visible(el) &&
-                            equals(text(el), name)
-                    );
-
-                if (exact) {
-                    return exact;
-                }
-
-                const leaf = [
-                    ...popup.querySelectorAll(
-                        'span, div, li, button'
-                    )
-                ].find(
-                    el =>
-                        visible(el) &&
-                        equals(text(el), name) &&
-                        ![
-                            ...el.children
-                        ].some(
-                            child =>
-                                equals(
-                                    text(child),
-                                    name
-                                )
-                        )
-                );
-
-                if (leaf) {
-
-                    const target =
-                        leaf.closest(
-                            `${itemSelector}, li, button, .cursor-pointer`
-                        );
-
-                    return target &&
-                        popup.contains(target) &&
-                        visible(target)
-                        ? target
-                        : leaf;
-                }
+    const popupOption = labels => {
+        const wanted = Array.isArray(labels) ? labels : [labels];
+        for (const label of wanted) {
+            for (const popup of document.querySelectorAll(popupSelector)) {
+                if (!visible(popup) || popup.classList.contains('ant-dropdown-hidden') || popup.classList.contains('ant-select-dropdown-hidden')) continue;
+                const items = [...popup.querySelectorAll(itemSelector)];
+                const match = items.find(item => visible(item) && equals(text(item), label));
+                if (match) return match;
+                const leaf = [...popup.querySelectorAll('span, div, li, button')]
+                    .find(item => visible(item) && equals(text(item), label));
+                if (leaf) return leaf.closest(`${itemSelector}, li, button, .cursor-pointer`) || leaf;
             }
         }
-
         return null;
-    }
+    };
 
-    async function choose(
-        trigger,
-        label,
-        kind
-    ) {
-
-        if (
-            !trigger ||
-            !visible(trigger)
-        ) {
-            throw new Error(
-                `Không tìm thấy ô chọn cho “${
-                    Array.isArray(label)
-                        ? label.join(' / ')
-                        : label
-                }”`
-            );
+    const choose = async (trigger, labels, kind = 'select') => {
+        if (!trigger || !visible(trigger)) {
+            const label = Array.isArray(labels) ? labels.join('/') : labels;
+            throw new Error(`Không tìm thấy ô chọn “${label}”`);
         }
 
         trigger.click();
+        let option = await waitFor(() => popupOption(labels), 1200, 'menu lựa chọn').catch(() => null);
 
-        let option =
-            await wait(
-                    () =>
-                        popupOption(label),
-                    900
-                )
-                .catch(() => null);
-
-        if (!option && kind !== 'dropdown') {
-
-            trigger.dispatchEvent(
-                new MouseEvent(
-                    'mousedown',
-                    {
-                        bubbles: true,
-                        cancelable: true,
-                        button: 0,
-                        buttons: 1
-                    }
-                )
-            );
-
-            trigger.dispatchEvent(
-                new MouseEvent(
-                    'mouseup',
-                    {
-                        bubbles: true,
-                        cancelable: true,
-                        button: 0
-                    }
-                )
-            );
-
-            option =
-                await wait(
-                        () =>
-                            popupOption(label),
-                        2500
-                    )
-                    .catch(() => null);
+        if (!option) {
+            trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
+            trigger.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+            option = await waitFor(() => popupOption(labels), 2500, 'menu lựa chọn').catch(() => null);
         }
 
-        // Danh sách thẻ dài, chỉ render sau tìm kiếm
         if (!option && kind === 'tag') {
-
-            const input =
-                trigger.closest('.ant-select')?.querySelector(
-                    'input.ant-select-selection-search-input:not([readonly])'
-                );
-
-            if (input) {
-
-                input.focus();
-
-                const setter =
-                    Object.getOwnPropertyDescriptor(
-                        HTMLInputElement.prototype,
-                        'value'
-                    ).set;
-
-                setter.call(input, label);
-
-                input.dispatchEvent(
-                    new Event(
-                        'input',
-                        { bubbles: true }
-                    )
-                );
-
-                option =
-                    await wait(
-                            () =>
-                                popupOption(label),
-                            6000
-                        )
-                        .catch(() => null);
+            const search = trigger.closest('.ant-select')?.querySelector('input.ant-select-selection-search-input:not([readonly])');
+            if (search) {
+                search.focus();
+                const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+                setter.call(search, Array.isArray(labels) ? labels[0] : labels);
+                search.dispatchEvent(new Event('input', { bubbles: true }));
+                option = await waitFor(() => popupOption(labels), 6000, 'thẻ Chặn').catch(() => null);
             }
         }
 
         if (!option) {
-
-            const open = [
-                ...document.querySelectorAll(
-                    popupSelector
-                )
-            ].filter(
-                el =>
-                    !el.classList.contains(
-                        'ant-dropdown-trigger'
-                    ) &&
-                    visible(el)
-            );
-
-            throw new Error(
-                `Không thấy tùy chọn “${
-                    Array.isArray(label)
-                        ? label.join(' / ')
-                        : label
-                }” (menu đang hiển thị: ${
-                    open.length
-                }).`
-            );
+            const label = Array.isArray(labels) ? labels.join('/') : labels;
+            throw new Error(`Không thấy lựa chọn “${label}” trong danh sách Botcake`);
         }
-
-        if (
-            kind === 'tag' &&
-            option.closest(
-                '.ant-select-item-option-selected, .ant-dropdown-menu-item-selected, [aria-selected="true"]'
-            )
-        ) {
-            return;
-        }
-
         option.click();
-    }
+    };
 
-    async function ensureField(
-        index,
-        label
-    ) {
-
-        const labels =
-            Array.isArray(label)
-                ? label
-                : [label];
-
-        const current = text(
-            rowAt(index).querySelector(
-                ':scope > .ant-dropdown-trigger'
-            )
-        );
-
-        if (
-            labels.some(
-                name => equals(current, name)
-            )
-        ) {
-            return;
+    const ensureField = async (index, labels) => {
+        const wanted = Array.isArray(labels) ? labels : [labels];
+        const trigger = () => rowAt(index).querySelector(':scope > .ant-dropdown-trigger');
+        const current = text(trigger());
+        if (wanted.some(label => equals(current, label))) return;
+        if (current && current !== 'Chọn điều kiện lọc') {
+            throw new Error(`Dòng ${index + 1} đang chọn “${current}”, không ghi đè điều kiện có sẵn`);
         }
+        await choose(trigger(), wanted, 'dropdown');
+        await waitFor(() => wanted.some(label => equals(text(trigger()), label)), 5000, `trường ${wanted.join('/')}`);
+    };
 
-        if (
-            current &&
-            current !== 'Chọn điều kiện lọc'
-        ) {
-            throw new Error(
-                `Dòng ${
-                    index + 1
-                } đang chọn “${
-                    current
-                }”; không ghi đè điều kiện có sẵn.`
-            );
-        }
+    const ensureOperator = async (index, labels) => {
+        const wanted = Array.isArray(labels) ? labels : [labels];
+        const select = () => selects(rowAt(index))[0];
+        if (!select()) throw new Error(`Không tìm thấy kiểu lọc tại dòng ${index + 1}`);
+        if (wanted.some(label => equals(chosen(select()), label))) return;
+        await choose(select().querySelector('.ant-select-selector'), wanted, 'select');
+        await waitFor(() => wanted.some(label => equals(chosen(select()), label)), 5000, `kiểu lọc ${wanted.join('/')}`);
+    };
 
-        await choose(
-            rowAt(index).querySelector(
-                ':scope > .ant-dropdown-trigger'
-            ),
-            labels,
-            'dropdown'
-        );
-
-        await wait(
-            () =>
-                labels.some(
-                    name =>
-                        equals(
-                            text(
-                                rowAt(
-                                    index
-                                ).querySelector(
-                                    ':scope > .ant-dropdown-trigger'
-                                )
-                            ),
-                            name
-                        )
-                ),
-            5000
-        );
-    }
-
-    async function ensureOperator(
-        index,
-        label
-    ) {
-
-        const labels =
-            Array.isArray(label)
-                ? label
-                : [label];
-
-        const select =
-            selects(rowAt(index))[0];
-
-        if (!select) {
-            throw new Error(
-                `Không thấy ô kiểu lọc tại dòng ${
-                    index + 1
-                }`
-            );
-        }
-
-        if (
-            labels.some(
-                name => equals(chosen(select), name)
-            )
-        ) {
-            return;
-        }
-
-        await choose(
-            select.querySelector(
-                '.ant-select-selector'
-            ),
-            labels,
-            'select'
-        );
-
-        await wait(
-            () =>
-                labels.some(
-                    name =>
-                        equals(
-                            chosen(
-                                selects(rowAt(index))[0]
-                            ),
-                            name
-                        )
-                ),
-            5000
-        );
-    }
-
-    async function ensureRow(
-        index
-    ) {
-
+    const ensureRow = async index => {
         while (rows().length <= index) {
-
-            const before =
-                rows().length;
-
-            const add =
-                buttons('Thêm điều kiện').find(
-                    el =>
-                        panel()?.contains(el) &&
-                        visible(el)
-                );
-
-            if (!add) {
-                throw new Error(
-                    'Không tìm thấy nút “Thêm điều kiện”.'
-                );
-            }
-
+            const before = rows().length;
+            const add = buttons('Thêm điều kiện').find(button => panel()?.contains(button));
+            if (!add) throw new Error('Không tìm thấy nút “Thêm điều kiện”');
             add.click();
-
-            await wait(
-                () => rows().length > before,
-                10000
-            );
+            await waitFor(() => rows().length > before, 10000, `dòng điều kiện ${index + 1}`);
         }
-    }
+    };
+
+    const formatFilterDate = timestamp => {
+        const date = new Date(Number(timestamp) * 1000);
+        const pad = value => String(value).padStart(2, '0');
+        return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    };
+
+    const setDateRange = async row => {
+        const range = await waitFor(
+            () => {
+                const picker = row.querySelector('.ant-picker-range');
+                return picker && visible(picker) ? picker : null;
+            },
+            10000,
+            'ô ngày giờ đăng ký dạng Khoảng'
+        );
+        const inputs = [...range.querySelectorAll('.ant-picker-input input')].filter(visible);
+        if (inputs.length < 2) {
+            throw new Error('Ô lọc ngày giờ không có đủ hai trường bắt đầu/kết thúc');
+        }
+        if (!data.startDate || !data.endDate) {
+            throw new Error('Thiếu ngày bắt đầu hoặc ngày kết thúc cho điều kiện lọc');
+        }
+
+        const values = [formatFilterDate(data.startDate), formatFilterDate(data.endDate)];
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        inputs.slice(0, 2).forEach((input, index) => {
+            input.focus();
+            setter.call(input, values[index]);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+        });
+        await sleep(300);
+
+        const actual = [...range.querySelectorAll('.ant-picker-input input')].slice(0, 2).map(input => input.value);
+        if (actual[0] !== values[0] || actual[1] !== values[1]) {
+            throw new Error('Botcake chưa nhận đủ ngày bắt đầu/kết thúc ở điều kiện lọc');
+        }
+    };
 
     try {
+        // This function is called only after “Tiếp theo”; do not try to open
+        // the message form again. Wait for the real filter screen.
+        await waitFor(() => panel(), 15000, 'màn hình điều kiện lọc sau khi bấm Tiếp theo');
+        await ensureRow(0);
 
-        await openForm();
-
-        if (!rows().length) {
-
-            const filter =
-                buttons('Điều kiện lọc').find(
-                    el =>
-                        panel()?.contains(el) &&
-                        visible(el)
-                );
-
-            if (!filter) {
-
-                return {
-                    ok: false,
-                    error:
-                        'Không tìm thấy nút “Điều kiện lọc”'
-                };
-            }
-
-            filter.click();
-
-            await wait(
-                () => rows().length > 0,
-                15000
-            );
-        }
-
-        // Dòng 0: Thẻ + Không bằng + Chặn
+        // 1) Thẻ != Chặn
         await ensureField(0, 'Thẻ');
         await ensureOperator(0, 'Không bằng');
-
-        const tagValueSelect = selects(rowAt(0))[1];
-        const addTagBtn = [
-            ...rowAt(0).querySelectorAll('button')
-        ].find(
-            el => text(el) === 'Thêm thẻ'
-        );
-
-        const tagTrigger =
-            tagValueSelect?.querySelector(
-                '.ant-select-selector'
-            ) ||
-            addTagBtn;
-
-        if (!tagTrigger) {
-            throw new Error(
-                'Không tìm thấy ô thêm/chọn thẻ ở dòng đầu.'
-            );
+        const tagSelect = selects(rowAt(0))[1];
+        const addTagButton = [...rowAt(0).querySelectorAll('button')].find(button => text(button) === 'Thêm thẻ');
+        const tagTrigger = tagSelect?.querySelector('.ant-select-selector') || addTagButton;
+        if (!tagTrigger) throw new Error('Không tìm thấy ô chọn thẻ ở dòng đầu');
+        const tagIsSelected = () => {
+            const selected = chosen(selects(rowAt(0))[1]);
+            return equals(selected, 'Chặn') || [...rowAt(0).querySelectorAll('.ant-select-selection-item, .ant-tag')].some(item => equals(text(item), 'Chặn'));
+        };
+        if (!tagIsSelected()) {
+            await choose(tagTrigger, 'Chặn', 'tag');
+            await waitFor(tagIsSelected, 5000, 'thẻ Chặn');
         }
 
-        await choose(tagTrigger, 'Chặn', 'tag');
-
-        await wait(1000);
-
-        // Dòng 1: Số điện thoại + Không có
+        // 2) Số điện thoại = Không có
         await ensureRow(1);
         await ensureField(1, 'Số điện thoại');
         await ensureOperator(1, ['Không có', 'Không']);
 
-        // Dòng 2: Ngày giờ đăng ký + Khoảng + ngày giờ
+        // 3) Ngày giờ đăng ký = Khoảng, rồi mới điền đủ hai mốc ngày giờ.
         await ensureRow(2);
-        await ensureField(2, [
-            'Ngày giờ đăng ký',
-            'Ngày giờ đăng'
-        ]);
+        await ensureField(2, ['Ngày giờ đăng ký', 'Ngày giờ đăng']);
         await ensureOperator(2, ['Khoảng', 'Khoảng thời gian']);
+        await setDateRange(rowAt(2));
 
-        // Đặt ngày giờ vào ô giá trị của dòng 2
-        const dateValueSelect = selects(rowAt(2))[1];
-        const dateTrigger =
-            dateValueSelect?.querySelector(
-                '.ant-select-selector'
-            );
-
-        if (dateTrigger) {
-
-            const start =
-                data.startDate
-                    ? new Date(
-                        data.startDate * 1000
-                    )
-                    : null;
-
-            const end =
-                data.endDate
-                    ? new Date(
-                        data.endDate * 1000
-                    )
-                    : null;
-
-            const pad =
-                n =>
-                    String(n).padStart(2, '0');
-
-            const startStr =
-                start
-                    ? `${pad(start.getDate())}/${pad(start.getMonth() + 1)}/${start.getFullYear()} ${pad(start.getHours())}:${pad(start.getMinutes())}`
-                    : '';
-
-            const endStr =
-                end
-                    ? `${pad(end.getDate())}/${pad(end.getMonth() + 1)}/${end.getFullYear()} ${pad(end.getHours())}:${pad(end.getMinutes())}`
-                    : '';
-
-            // Click trigger để mở chọn ngày
-            dateTrigger.click();
-
-            await wait(1000);
-
-            // Tìm input ngày trong popup/datepicker
-            const dateInput =
-                document.querySelector(
-                    'input[type="date"], input[placeholder*="Ngày"], input[placeholder*="ngày"]'
-                ) ||
-                dateValueSelect.querySelector('input');
-
-            if (dateInput && startStr) {
-
-                dateInput.focus();
-
-                const setter =
-                    Object.getOwnPropertyDescriptor(
-                        HTMLInputElement.prototype,
-                        'value'
-                    ).set;
-
-                setter.call(dateInput, startStr);
-
-                dateInput.dispatchEvent(
-                    new Event(
-                        'input',
-                        { bubbles: true }
-                    )
-                );
-
-                dateInput.dispatchEvent(
-                    new Event(
-                        'change',
-                        { bubbles: true }
-                    )
-                );
-            }
-        }
-
-        return {
-            ok: true
-        };
-
+        return { ok: true };
     } catch (error) {
-
-        return {
-            ok: false,
-            error: error.message
-        };
+        return { ok: false, error: error?.message || String(error) };
     }
 }
 
@@ -2924,55 +2458,23 @@ async function processOneBotcake(
 
     try {
 
-        // MỞ FORM TẠO MỚI (như script F6)
-        const openResult =
-            await openCreateForm(
-                target
-            );
-
+        // Mở form, nhập tin nhắn, rồi chuyển sang bước điều kiện lọc.
+        const openResult = await openCreateForm(target);
         if (!openResult?.ok) {
-
-            console.warn(
-                '[Botcake Multi] Không mở được form tạo mới: ' +
-                (openResult?.error || 'unknown') +
-                ' – thử tiếp điền nội dung'
-            );
+            throw new Error(openResult?.error || 'Không mở được form tạo mới');
         }
 
-        // CONTENT
-        await fillEditor(
+        await fillEditor(target, message);
+        await clickNext(target);
+
+        // Không được đi tiếp tới phần lên lịch nếu bất kỳ điều kiện lọc nào lỗi.
+        const filterResult = await setFilterConditions(
             target,
-            message
+            job.startDate || null,
+            job.endDate || null
         );
-
-        // NEXT
-        await clickNext(
-            target
-        );
-
-        // ĐIỀU KIỆN LỌC (như script F6) - cố thiết thì bỏ qua, không chặn luồng chính
-        try {
-
-            const filterResult =
-                await setFilterConditions(
-                    target,
-                    job.startDate || null,
-                    job.endDate || null
-                );
-
-            if (!filterResult?.ok) {
-
-                console.warn(
-                    '[Botcake Multi] Bỏ qua điều kiện lọc: ' +
-                    (filterResult?.error || 'unknown')
-                );
-            }
-        } catch (filterErr) {
-
-            console.warn(
-                '[Botcake Multi] Lỗi điều kiện lọc: ' +
-                filterErr.message
-            );
+        if (!filterResult?.ok) {
+            throw new Error(filterResult?.error || 'Không tạo đủ điều kiện lọc');
         }
 
         // WAIT DATE

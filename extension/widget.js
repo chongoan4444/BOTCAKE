@@ -1,30 +1,10 @@
-(() => {
+(async () => {
     'use strict';
 
-    // =========================================================
-    // ĐÃ CÓ WIDGET -> HIỆN LẠI
-    // =========================================================
-
-    const existing =
-        document.getElementById(
-            'bc-floating-root'
-        );
-
-    if (existing) {
-        existing.style.display = 'block';
-        return;
-    }
-
-    // =========================================================
-    // STORAGE
-    // =========================================================
-
     const STORAGE = {
-        POSITION:
-            'bc_multi_position_v6',
-
-        MINIMIZED:
-            'bc_multi_minimized_v6',
+        POSITION: 'bc_multi_position_v6',
+        MINIMIZED: 'bc_multi_minimized_v6',
+        VISIBLE: 'bc_multi_visible_v6',
 
         MESSAGE:
             'bc_multi_message_v6',
@@ -38,6 +18,29 @@
         TIMES:
             'bc_multi_times_v6'
     };
+
+    const savedVisibility = await new Promise(resolve => {
+        chrome.storage.local.get(
+            [STORAGE.VISIBLE],
+            resolve
+        );
+    });
+
+    const existing = document.getElementById('bc-floating-root');
+    if (existing) {
+        existing.style.display = 'block';
+        existing.classList.remove('bc-minimized');
+        chrome.storage.local.set({
+            [STORAGE.VISIBLE]: true,
+            [STORAGE.MINIMIZED]: false
+        });
+        return;
+    }
+
+    // Only recreate the bubble after F5 if it was left open.
+    if (savedVisibility[STORAGE.VISIBLE] !== true) {
+        return;
+    }
 
     // =========================================================
     // BASIC
@@ -1514,8 +1517,8 @@
             savePosition();
 
             chrome.storage.local.set({
-                [STORAGE.MINIMIZED]:
-                    false
+                [STORAGE.VISIBLE]: true,
+                [STORAGE.MINIMIZED]: false
             });
 
             loadBotcakeTabs();
@@ -1533,6 +1536,10 @@
             event.stopPropagation();
 
             savePosition();
+
+            chrome.storage.local.set({
+                [STORAGE.VISIBLE]: false
+            });
 
             root.remove();
         }
