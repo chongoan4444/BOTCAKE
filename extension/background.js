@@ -1963,6 +1963,84 @@ async function setFilterConditions(
     return pageResult;
 }
 
+async function setFilterConditionsWithHarVerification(target, tabId, startDate, endDate) {
+    const requestBodies = [];
+    const listener = (source, method, params) => {
+        if (
+            source?.tabId !== tabId ||
+            method !== 'Network.requestWillBeSent' ||
+            !params?.request?.postData
+        ) return;
+
+        try {
+            const url = new URL(params.request.url);
+            if (url.pathname.endsWith('/customers/send_broadcast_count')) {
+                requestBodies.push(params.request.postData);
+            }
+        } catch (_) {}
+    };
+
+    const parseForm = body => {
+        const fields = {};
+        const parts = /name="([^"]+)"\r?\n\r?\n([^\r\n]*)/g;
+        let match;
+        while ((match = parts.exec(body))) {
+            fields[match[1]] = match[2];
+        }
+        return fields;
+    };
+
+    const hasHarFilters = body => {
+        const fields = parseForm(body);
+        const findIndex = type => {
+            for (let i = 0; i < 12; i++) {
+                if (fields[`filter[${i}][type]`] === type) return i;
+            }
+            return -1;
+        };
+
+        const tag = findIndex('tags');
+        const phone = findIndex('phone_number');
+        const registered = findIndex('last_subscribed');
+        if (tag < 0 || phone < 0 || registered < 0) return false;
+
+        return (
+            fields[`filter[${tag}][filter_type]`] === 'not_equal' &&
+            fields[`filter[${tag}][tags][0][label]`] === 'Chặn' &&
+            fields[`filter[${phone}][filter_type]`] === 'not_contains' &&
+            fields[`filter[${phone}][value]`] === 'phone' &&
+            fields[`filter[${registered}][filter_type]`] === 'ranger' &&
+            fields.filter_type === 'and' &&
+            Number(fields[`filter[${registered}][start_date]`]) === Number(startDate) &&
+            Number(fields[`filter[${registered}][end_date]`]) === Number(endDate)
+        );
+    };
+
+    chrome.debugger.onEvent.addListener(listener);
+    try {
+        await cdp(target, 'Network.enable', {});
+        const result = await setFilterConditions(target, startDate, endDate);
+        if (!result?.ok) {
+            throw new Error(result?.error || 'Botcake không hoàn tất điều kiện lọc');
+        }
+
+        const deadline = Date.now() + 15000;
+        while (Date.now() < deadline) {
+            if (requestBodies.some(hasHarFilters)) return result;
+            await sleep(100);
+        }
+
+        throw new Error(
+            'Đã thao tác trên giao diện nhưng HAR không ghi nhận đủ filter tags/not_equal, phone_number/not_contains và last_subscribed/ranger; dừng trước khi đặt lịch'
+        );
+    } finally {
+        chrome.debugger.onEvent.removeListener(listener);
+        try {
+            await cdp(target, 'Network.disable', {});
+        } catch (_) {}
+    }
+}
+
 async function setFilterConditionsPage(data) {
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -2135,9 +2213,10 @@ async function setFilterConditionsPage(data) {
             setter.call(input, values[index]);
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.dispatchEvent(new Event('change', { bubbles: true }));
-            input.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            input.blur();
         });
-        await sleep(300);
+        await sleep(500);
 
         const actual = [...range.querySelectorAll('.ant-picker-input input')].slice(0, 2).map(input => input.value);
         if (actual[0] !== values[0] || actual[1] !== values[1]) {
@@ -2149,6 +2228,15 @@ async function setFilterConditionsPage(data) {
         // This function is called only after “Tiếp theo”; do not try to open
         // the message form again. Wait for the real filter screen.
         await waitFor(() => panel(), 15000, 'màn hình điều kiện lọc sau khi bấm Tiếp theo');
+
+        // HAR confirms the filters must be combined with AND.
+        const andRadio = panel().querySelector('input[type="radio"][value="and"]');
+        if (!andRadio) throw new Error('Không tìm thấy lựa chọn “Thoả mãn tất cả các điều kiện”');
+        if (!andRadio.checked) {
+            (andRadio.closest('label') || andRadio).click();
+            await waitFor(() => andRadio.checked, 3000, 'chế độ lọc AND');
+        }
+
         await ensureRow(0);
 
         // 1) Thẻ != Chặn
@@ -2462,8 +2550,9 @@ async function processOneBotcake(
         await clickNext(target);
 
         // Không được đi tiếp tới phần lên lịch nếu bất kỳ điều kiện lọc nào lỗi.
-        const filterResult = await setFilterConditions(
+        const filterResult = await setFilterConditionsWithHarVerification(
             target,
+            tab.id,
             job.startDate || null,
             job.endDate || null
         );
