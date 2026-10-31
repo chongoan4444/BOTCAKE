@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Botcake Auto",
-  "version": "6.1.4",
+  "version": "6.1.5",
   "description": "Botcake Auto - bảng nổi kéo thả",
   "permissions": [
     "tabs",
