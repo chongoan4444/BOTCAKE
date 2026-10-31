@@ -901,11 +901,28 @@
 
         try {
 
-            const response =
-                await chrome.runtime.sendMessage({
-                    action:
-                        'GET_BOTCAKE_TABS'
-                });
+            // Use the callback API for compatibility with Chrome builds where
+            // runtime.sendMessage does not return a Promise from injected scripts.
+            const response = await new Promise(
+                (resolve, reject) => {
+                    chrome.runtime.sendMessage(
+                        {
+                            action: 'GET_BOTCAKE_TABS'
+                        },
+                        result => {
+                            const runtimeError =
+                                chrome.runtime.lastError;
+
+                            if (runtimeError) {
+                                reject(new Error(runtimeError.message));
+                                return;
+                            }
+
+                            resolve(result);
+                        }
+                    );
+                }
+            );
 
             if (
                 !response ||
@@ -925,10 +942,15 @@
 
         } catch (error) {
 
+            console.error(
+                '[Botcake Widget] GET_BOTCAKE_TABS failed:',
+                error
+            );
+
             botcakeTabs = [];
 
             tabInfo.textContent =
-                '❌ Không đọc được tab Botcake';
+                `❌ Không đọc được tab Botcake: ${error?.message || error}`;
 
             tabList.innerHTML = '';
 
