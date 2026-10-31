@@ -504,31 +504,40 @@
         number
     ) {
 
-        const defaultTime =
-            getDefaultTime();
+        const defaultTime = getDefaultTime();
+        const existingTime = savedTimes[String(number)] || {};
+        const defaultStart = new Date(defaultTime.startDate * 1000);
+        const defaultEnd = new Date(defaultTime.endDate * 1000);
 
-        const existingTime =
-            savedTimes[
-                String(number)
-            ] || {};
+        function getDateField(value, fallbackDate) {
+            if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                return value;
+            }
 
-        const startDate =
-            existingTime.startDate ??
-            defaultTime.startDate;
+            const date = typeof value === 'number'
+                ? new Date(value * 1000)
+                : fallbackDate;
 
-        const endDate =
-            existingTime.endDate ??
-            defaultTime.endDate;
+            return [
+                date.getFullYear(),
+                pad(date.getMonth() + 1),
+                pad(date.getDate())
+            ].join('-');
+        }
 
-        const startD =
-            startDate
-                ? new Date(startDate * 1000)
-                : null;
+        const legacyStart = typeof existingTime.startDate === 'number'
+            ? new Date(existingTime.startDate * 1000)
+            : defaultStart;
+        const legacyEnd = typeof existingTime.endDate === 'number'
+            ? new Date(existingTime.endDate * 1000)
+            : defaultEnd;
 
-        const endD =
-            endDate
-                ? new Date(endDate * 1000)
-                : null;
+        const startDateValue = getDateField(existingTime.startDate, defaultStart);
+        const endDateValue = getDateField(existingTime.endDate, defaultEnd);
+        const startHourValue = existingTime.startHour ?? pad(legacyStart.getHours());
+        const startMinuteValue = existingTime.startMinute ?? pad(legacyStart.getMinutes());
+        const endHourValue = existingTime.endHour ?? existingTime.hour ?? pad(legacyEnd.getHours());
+        const endMinuteValue = existingTime.endMinute ?? existingTime.minute ?? pad(legacyEnd.getMinutes());
 
         const row =
             document.createElement(
@@ -571,7 +580,7 @@
                     <input
                         type="date"
                         class="bc-tab-start-date"
-                        value="${startD ? startD.toISOString().slice(0, 10) : ''}"
+                        value="${startDateValue}"
                         ${checked ? '' : 'disabled'}
                     >
 
@@ -580,7 +589,7 @@
                         inputmode="numeric"
                         maxlength="2"
                         class="bc-tab-start-hour"
-                        value="${startD ? pad(startD.getHours()) : ''}"
+                        value="${startHourValue}"
                         ${checked ? '' : 'disabled'}
                     >
 
@@ -591,7 +600,7 @@
                         inputmode="numeric"
                         maxlength="2"
                         class="bc-tab-start-minute"
-                        value="${startD ? pad(startD.getMinutes()) : ''}"
+                        value="${startMinuteValue}"
                         ${checked ? '' : 'disabled'}
                     >
 
@@ -604,7 +613,7 @@
                     <input
                         type="date"
                         class="bc-tab-end-date"
-                        value="${endD ? endD.toISOString().slice(0, 10) : ''}"
+                        value="${endDateValue}"
                         ${checked ? '' : 'disabled'}
                     >
 
@@ -613,7 +622,7 @@
                         inputmode="numeric"
                         maxlength="2"
                         class="bc-tab-end-hour"
-                        value="${endD ? pad(endD.getHours()) : ''}"
+                        value="${endHourValue}"
                         ${checked ? '' : 'disabled'}
                     >
 
@@ -624,7 +633,7 @@
                         inputmode="numeric"
                         maxlength="2"
                         class="bc-tab-end-minute"
-                        value="${endD ? pad(endD.getMinutes()) : ''}"
+                        value="${endMinuteValue}"
                         ${checked ? '' : 'disabled'}
                     >
 
@@ -732,109 +741,38 @@
         // ONLY NUMBER
         // =====================================================
 
-        function cleanNumber(input) {
-
-            input.value =
-                input.value
-                    .replace(/\D/g, '')
-                    .slice(0, 2);
-        }
-
-        hourInput.addEventListener(
-            'input',
-            () => {
-                cleanNumber(
-                    hourInput
-                );
-            }
-        );
-
-        minuteInput.addEventListener(
-            'input',
-            () => {
-                cleanNumber(
-                    minuteInput
-                );
-            }
-        );
-
-        // =====================================================
-        // SAVE TIME
-        // =====================================================
-
-        function commitTime() {
-
-            const h =
-                clampHour(
-                    hourInput.value
-                );
-
-            const m =
-                clampMinute(
-                    minuteInput.value
-                );
-
-            hourInput.value =
-                pad(h);
-
-            minuteInput.value =
-                pad(m);
-
-            savedTimes[
-                String(number)
-            ] = {
-                hour: h,
-                minute: m
+        function saveRowTime() {
+            savedTimes[String(number)] = {
+                startDate: startDateInput.value,
+                startHour: startHourInput.value,
+                startMinute: startMinuteInput.value,
+                endDate: endDateInput.value,
+                endHour: endHourInput.value,
+                endMinute: endMinuteInput.value
             };
-
             saveTimes();
         }
 
-        hourInput.addEventListener(
-            'blur',
-            commitTime
-        );
-
-        minuteInput.addEventListener(
-            'blur',
-            commitTime
-        );
-
-        hourInput.addEventListener(
-            'keydown',
-            event => {
-
-                if (
-                    event.key === 'Enter'
-                ) {
-
-                    event.preventDefault();
-
-                    commitTime();
-
-                    minuteInput.focus();
-
-                    minuteInput.select();
+        [
+            startDateInput,
+            startHourInput,
+            startMinuteInput,
+            endDateInput,
+            endHourInput,
+            endMinuteInput
+        ].forEach(input => {
+            input.addEventListener('input', () => {
+                if (input.type === 'text') {
+                    input.value = input.value.replace(/\D/g, '').slice(0, 2);
                 }
-            }
-        );
+                saveRowTime();
+            });
+            input.addEventListener('change', saveRowTime);
+            input.addEventListener('blur', saveRowTime);
+        });
 
-        minuteInput.addEventListener(
-            'keydown',
-            event => {
-
-                if (
-                    event.key === 'Enter'
-                ) {
-
-                    event.preventDefault();
-
-                    commitTime();
-
-                    minuteInput.blur();
-                }
-            }
-        );
+        // Persist initial defaults too, so a page refresh does not reset them.
+        saveRowTime();
 
         if (checked) {
 
@@ -1079,42 +1017,49 @@
                     '.bc-tab-end-minute'
                 );
 
-            const d = endDateInput.valueAsDate || new Date();
+            function toLocalTimestamp(dateValue, hourValue, minuteValue) {
+                const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue || '');
+                const hour = parseInt(hourValue, 10);
+                const minute = parseInt(minuteValue, 10);
 
-            let sh =
-                clampHour(
-                    startHourInput.value
-                );
+                if (!match || Number.isNaN(hour) || Number.isNaN(minute)) {
+                    throw new Error(`Hãy nhập đủ ngày giờ cho Botcake #${number}`);
+                }
 
-            let sm =
-                clampMinute(
-                    startMinuteInput.value
-                );
+                const year = Number(match[1]);
+                const month = Number(match[2]);
+                const day = Number(match[3]);
+                const validHour = clampHour(hour);
+                const validMinute = clampMinute(minute);
+                const date = new Date(year, month - 1, day, validHour, validMinute, 0, 0);
 
-            let eh =
-                clampHour(
-                    endHourInput.value
-                );
+                if (
+                    date.getFullYear() !== year ||
+                    date.getMonth() !== month - 1 ||
+                    date.getDate() !== day
+                ) {
+                    throw new Error(`Ngày không hợp lệ cho Botcake #${number}`);
+                }
 
-            let em =
-                clampMinute(
-                    endMinuteInput.value
-                );
-
-            startHourInput.value = pad(sh);
-            startMinuteInput.value = pad(sm);
-            endHourInput.value = pad(eh);
-            endMinuteInput.value = pad(em);
-
-            d.setHours(eh, em, 0, 0);
-
-            const startD = startDateInput.valueAsDate || new Date();
-            startD.setHours(sh, sm, 0, 0);
+                return Math.floor(date.getTime() / 1000);
+            }
 
             const times = {
-                startDate: Math.floor(startD.getTime() / 1000),
-                endDate: Math.floor(d.getTime() / 1000)
+                startDate: toLocalTimestamp(
+                    startDateInput.value,
+                    startHourInput.value,
+                    startMinuteInput.value
+                ),
+                endDate: toLocalTimestamp(
+                    endDateInput.value,
+                    endHourInput.value,
+                    endMinuteInput.value
+                )
             };
+
+            if (times.endDate <= times.startDate) {
+                throw new Error(`Giờ kết thúc phải sau giờ bắt đầu cho Botcake #${number}`);
+            }
 
             savedTimes[
                 String(number)
@@ -1170,8 +1115,14 @@
                 return;
             }
 
-            const jobs =
-                collectJobs();
+            let jobs;
+            try {
+                jobs = collectJobs();
+            } catch (error) {
+                statusEl.textContent = `❌ ${error.message}`;
+                statusEl.style.color = '#ff6b6b';
+                return;
+            }
 
             if (
                 jobs.length === 0
