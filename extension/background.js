@@ -26,8 +26,6 @@ const CONFIG = {
     CONTENT_VERIFY_RETRY: 10,
     CONTENT_VERIFY_DELAY: 30,
 
-    AFTER_NEXT: 120,
-
     SCHEDULE_RETRY: 60,
     SCHEDULE_CHECK: 30
 };
@@ -1205,9 +1203,6 @@ async function clickNext(
         point.y
     );
 
-    await sleep(
-        CONFIG.AFTER_NEXT
-    );
 }
 
 // =========================================================
@@ -2027,7 +2022,7 @@ async function setFilterConditionsWithHarVerification(target, tabId, startDate, 
         const deadline = Date.now() + 15000;
         while (Date.now() < deadline) {
             if (requestBodies.some(hasHarFilters)) return result;
-            await sleep(100);
+            await sleep(25);
         }
 
         throw new Error(
@@ -2042,28 +2037,46 @@ async function setFilterConditionsWithHarVerification(target, tabId, startDate, 
 }
 
 async function setFilterConditionsPage(data) {
-    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
+    // React updates are observed immediately; a short poll remains as a
+    // fallback for controlled input values that do not mutate DOM attributes.
     const waitFor = (getValue, timeout = 10000, description = 'điều kiện lọc') =>
         new Promise((resolve, reject) => {
-            const started = Date.now();
-            const poll = () => {
-                let value;
+            let settled = false;
+            let observer;
+            let interval;
+            let timer;
+            const finish = (value, error) => {
+                if (settled) return;
+                settled = true;
+                observer?.disconnect();
+                clearInterval(interval);
+                clearTimeout(timer);
+                if (error) reject(error);
+                else resolve(value);
+            };
+            const check = () => {
                 try {
-                    value = getValue();
+                    const value = getValue();
+                    if (value) finish(value);
                 } catch (error) {
-                    reject(error);
-                    return;
-                }
-                if (value) {
-                    resolve(value);
-                } else if (Date.now() - started >= timeout) {
-                    reject(new Error(`Hết thời gian chờ ${description}`));
-                } else {
-                    setTimeout(poll, 100);
+                    finish(null, error);
                 }
             };
-            poll();
+
+            observer = new MutationObserver(check);
+            observer.observe(document.documentElement, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+                attributes: true,
+                attributeFilter: ['class', 'style', 'aria-expanded', 'aria-selected', 'value']
+            });
+            interval = setInterval(check, 40);
+            timer = setTimeout(
+                () => finish(null, new Error(`Hết thời gian chờ ${description}`)),
+                timeout
+            );
+            check();
         });
 
     const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
@@ -2126,12 +2139,12 @@ async function setFilterConditionsPage(data) {
         }
 
         trigger.click();
-        let option = await waitFor(() => popupOption(labels), 1200, 'menu lựa chọn').catch(() => null);
+        let option = await waitFor(() => popupOption(labels), 700, 'menu lựa chọn').catch(() => null);
 
         if (!option) {
             trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
             trigger.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
-            option = await waitFor(() => popupOption(labels), 2500, 'menu lựa chọn').catch(() => null);
+            option = await waitFor(() => popupOption(labels), 1500, 'menu lựa chọn').catch(() => null);
         }
 
         if (!option && kind === 'tag') {
@@ -2141,7 +2154,7 @@ async function setFilterConditionsPage(data) {
                 const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
                 setter.call(search, Array.isArray(labels) ? labels[0] : labels);
                 search.dispatchEvent(new Event('input', { bubbles: true }));
-                option = await waitFor(() => popupOption(labels), 6000, 'thẻ Chặn').catch(() => null);
+                option = await waitFor(() => popupOption(labels), 3500, 'thẻ Chặn').catch(() => null);
             }
         }
 
@@ -2161,7 +2174,7 @@ async function setFilterConditionsPage(data) {
             throw new Error(`Dòng ${index + 1} đang chọn “${current}”, không ghi đè điều kiện có sẵn`);
         }
         await choose(trigger(), wanted, 'dropdown');
-        await waitFor(() => wanted.some(label => equals(text(trigger()), label)), 5000, `trường ${wanted.join('/')}`);
+        await waitFor(() => wanted.some(label => equals(text(trigger()), label)), 2000, `trường ${wanted.join('/')}`);
     };
 
     const ensureOperator = async (index, labels) => {
@@ -2170,7 +2183,7 @@ async function setFilterConditionsPage(data) {
         if (!select()) throw new Error(`Không tìm thấy kiểu lọc tại dòng ${index + 1}`);
         if (wanted.some(label => equals(chosen(select()), label))) return;
         await choose(select().querySelector('.ant-select-selector'), wanted, 'select');
-        await waitFor(() => wanted.some(label => equals(chosen(select()), label)), 5000, `kiểu lọc ${wanted.join('/')}`);
+        await waitFor(() => wanted.some(label => equals(chosen(select()), label)), 2000, `kiểu lọc ${wanted.join('/')}`);
     };
 
     const ensureRow = async index => {
@@ -2179,7 +2192,7 @@ async function setFilterConditionsPage(data) {
             const add = buttons('Thêm điều kiện').find(button => panel()?.contains(button));
             if (!add) throw new Error('Không tìm thấy nút “Thêm điều kiện”');
             add.click();
-            await waitFor(() => rows().length > before, 10000, `dòng điều kiện ${index + 1}`);
+            await waitFor(() => rows().length > before, 7000, `dòng điều kiện ${index + 1}`);
         }
     };
 
@@ -2216,12 +2229,13 @@ async function setFilterConditionsPage(data) {
             input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
             input.blur();
         });
-        await sleep(500);
 
-        const actual = [...range.querySelectorAll('.ant-picker-input input')].slice(0, 2).map(input => input.value);
-        if (actual[0] !== values[0] || actual[1] !== values[1]) {
-            throw new Error('Botcake chưa nhận đủ ngày bắt đầu/kết thúc ở điều kiện lọc');
-        }
+        await waitFor(() => {
+            const actual = [...range.querySelectorAll('.ant-picker-input input')]
+                .slice(0, 2)
+                .map(input => input.value);
+            return actual[0] === values[0] && actual[1] === values[1];
+        }, 1500, 'Botcake nhận đủ ngày bắt đầu/kết thúc');
     };
 
     try {
@@ -2274,9 +2288,7 @@ async function setFilterConditionsPage(data) {
         }
         if (!currentTag) {
             await choose(tagTrigger, 'Chặn', 'tag');
-            // UI may show only a chip count; the HAR-backed request check below
-            // verifies the actual selected tag label before scheduling.
-            await sleep(250);
+            // The HAR-backed request check verifies the tag before scheduling.
         }
 
         // 2) Số điện thoại = Không có
