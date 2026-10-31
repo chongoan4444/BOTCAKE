@@ -375,6 +375,9 @@
             '#bc-widget-status'
         );
 
+    let completionStatusTimer = null;
+    let runGeneration = 0;
+
     // =========================================================
     // MESSAGE
     // =========================================================
@@ -1140,6 +1143,10 @@
                 return;
             }
 
+            const currentRun = ++runGeneration;
+            clearTimeout(completionStatusTimer);
+            completionStatusTimer = null;
+
             runBtn.disabled =
                 true;
 
@@ -1190,6 +1197,15 @@
 
                 statusEl.style.color =
                     '#51cf66';
+
+                // Clear the completion indicator so the widget is ready for
+                // the next batch without leaving stale status text.
+                completionStatusTimer = setTimeout(() => {
+                    if (currentRun !== runGeneration || runBtn.disabled) return;
+                    statusEl.textContent = 'Sẵn sàng';
+                    statusEl.style.color = '';
+                    completionStatusTimer = null;
+                }, 1200);
             })
             .catch(error => {
 
